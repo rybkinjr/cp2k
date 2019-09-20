@@ -41,7 +41,6 @@ MODULE optimize_embedding_potential
                                               cp_pw_to_simple_volumetric
    USE dbcsr_api,                       ONLY: dbcsr_p_type
    USE embed_types,                     ONLY: opt_embed_pot_type
-   USE force_env_types,                 ONLY: force_env_type
    USE input_constants,                 ONLY: &
         embed_diff, embed_fa, embed_grid_angstrom, embed_grid_bohr, embed_level_shift, embed_none, &
         embed_quasi_newton, embed_resp, embed_steep_desc
@@ -102,6 +101,10 @@ MODULE optimize_embedding_potential
                                               xc_rho_set_release,&
                                               xc_rho_set_type,&
                                               xc_rho_set_update
+   USE force_env_types,                 ONLY: &
+        force_env_get, force_env_get_natom, force_env_p_type, force_env_set, force_env_type, &
+        use_eip_force, use_embed, use_fist_force, use_mixed_force, use_prog_name, use_pwdft_force, &
+        use_qmmm, use_qmmmx, use_qs_force
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -150,12 +153,19 @@ CONTAINS
       IF (ref_subsys_number .EQ. 3) THEN
          all_spins = 0
          DO i_force_eval = 1, ref_subsys_number
-            CALL get_qs_env(qs_env=force_env%sub_force_env(i_force_eval)%force_env%qs_env, &
+            SELECT CASE (force_env%sub_force_env(i_force_eval)%force_env%in_use)
+               CASE (use_qs_force)
+                  CALL get_qs_env(qs_env=force_env%sub_force_env(i_force_eval)%force_env%qs_env, &
                             nelectron_spin=nelectron_spin, dft_control=dft_control)
-            all_spins(:, i_force_eval) = nelectron_spin
-            nspins = dft_control%nspins
-            all_nspins(i_force_eval) = nspins
+                  all_spins(:, i_force_eval) = nelectron_spin
+                  nspins = dft_control%nspins
+                  all_nspins(i_force_eval) = nspins
+               CASE (use_pwdft_force)
+                  nspins = force_env%sub_force_env(i_force_eval)%force_env%pwdft_env%num_mag_dims + 1
+                  all_nspins(i_force_eval) = nspins
+            END SELECT
          ENDDO
+         write(*,*) 'ALL_SPINS', all_nspins
 
          ! Find out whether we need a spin-dependend embedding potential
          IF (.NOT. ((all_nspins(1) .EQ. 1) .AND. (all_nspins(2) .EQ. 1) .AND. (all_nspins(3) .EQ. 1))) &
@@ -3145,6 +3155,7 @@ CONTAINS
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(qs_subsys_type), POINTER                      :: subsys
       TYPE(section_vals_type), POINTER                   :: dft_section, input
+      !INTEGER                                            :: num_pe, ip
 
       NULLIFY (subsys, input)
 

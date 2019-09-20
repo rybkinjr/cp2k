@@ -27,6 +27,8 @@ MODULE input_cp2k_pwdft
       section_release, &
       section_type
    USE kinds, ONLY: dp
+   USE input_cp2k_dft, ONLY: create_optimize_embed
+   USE input_val_types,                 ONLY: integer_t
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -55,6 +57,7 @@ CONTAINS
 
       CHARACTER(len=32)                                  :: section_name
       TYPE(section_type), POINTER                        :: subsection
+      TYPE(keyword_type), POINTER                        :: keyword
 
 !     ------------------------------------------------------------------------
 
@@ -62,10 +65,10 @@ CONTAINS
       CALL section_create(section, __LOCATION__, name="PW_DFT", &
                           description="This section contains all information to run an "// &
                           "SIRIUS PW calculation.", &
-                          n_subsections=4, &
+                          n_subsections=5, &
                           repeats=.FALSE.)
 
-      NULLIFY (subsection)
+      NULLIFY (subsection, keyword)
       section_name = ''
       section_name = 'control'
       CALL create_sirius_section(subsection, section_name)
@@ -89,6 +92,45 @@ CONTAINS
       CALL create_sirius_section(subsection, section_name)
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
+
+      ! Embedding subsection
+      CALL create_optimize_embed(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
+      CALL keyword_create(keyword, __LOCATION__, name="REF_EMBED_SUBSYS", &
+                          description="A total, reference, system in DFT embedding. ", &
+                          usage="REF_EMBED_SUBSYS FALSE", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="CLUSTER_EMBED_SUBSYS", &
+                          description="A cluster treated with DFT in DFT embedding. ", &
+                          usage="CLUSTER_EMBED_SUBSYS FALSE", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="HIGH_LEVEL_EMBED_SUBSYS", &
+                          description="A cluster treated with a high-level method in DFT embedding. ", &
+                          usage="HIGH_LEVEL_EMBED_SUBSYS FALSE", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="USE_EXTERNAL_GRID_SIZE", &
+                          description="Defines whether the grid size is given externally. ", &
+                          usage="USE_EXTERNAL_GRID_SIZE .TRUE.", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="EXTERNAL_GRID_SIZE", &
+                          description="Externally specified Fourier grid size ", &
+                          usage="GRID_SIZE 2 2 2", n_var=-1, default_i_vals=(/0, 0, 0/), type_of_var=integer_t)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
 
    END SUBROUTINE create_pwdft_section
 

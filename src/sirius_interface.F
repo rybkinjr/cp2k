@@ -21,7 +21,8 @@
             sirius_option_set_string, sirius_option_set_logical, sirius_option_set_double, &
             sirius_option_set_int, sirius_option_get_string, sirius_option_get_logical, &
             sirius_option_get_double, sirius_option_get_int, sirius_option_get_name_and_type, &
-            sirius_option_get_length, sirius_dump_runtime_setup, sirius_option_add_string_to, sirius_add_xc_functional
+            sirius_option_get_length, sirius_dump_runtime_setup, sirius_option_add_string_to, sirius_add_xc_functional, &
+            sirius_set_rg_values, sirius_get_rg_values, sirius_get_total_magnetization, sirius_set_parameters
 #endif
          USE input_section_types, ONLY: section_vals_val_get, section_vals_get_subs_vals2, section_vals_get, &
             section_vals_duplicate
@@ -58,8 +59,21 @@
          USE pwdft_environment_types, ONLY: pwdft_environment_type, pwdft_energy_type, pwdft_env_set, pwdft_env_get
          USE ISO_C_BINDING, ONLY: &
             C_ASSOCIATED, C_BOOL, C_DOUBLE, C_FUNPTR, C_F_POINTER, C_INT, C_NULL_FUNPTR, C_NULL_PTR, &
-            C_PTR, C_CHAR
+            C_PTR, C_CHAR, C_LOC
          USE kinds, ONLY: dp, default_string_length
+   USE message_passing,                 ONLY: mp_alltoall,&
+                                              mp_bcast,&
+                                              mp_comm_split_direct,&
+                                              mp_min,&
+                                              mp_sendrecv,&
+                                              mp_sum
+   USE pw_types,                        ONLY: COMPLEXDATA1D,&
+                                              REALDATA3D,&
+                                              REALSPACE,&
+                                              RECIPROCALSPACE,&
+                                              pw_p_type,&
+                                              pw_release,&
+                                              pw_type
 
 #include "./base/base_uses.f90"
          IMPLICIT NONE
@@ -74,6 +88,7 @@
 
          PUBLIC :: cp_sirius_init, cp_sirius_finalize
          PUBLIC :: cp_sirius_create_env, cp_sirius_energy_force, cp_sirius_update_context
+         PUBLIC :: cp_sirius_get_rg_values, cp_sirius_set_rg_values, cp_sirius_set_parameters
 
       CONTAINS
 
@@ -138,6 +153,163 @@
          END SUBROUTINE cp_sirius_finalize
 #endif
 
+#if defined(__SIRIUS)
+         SUBROUTINE cp_sirius_set_rg_values(pwdft_env, pw, label)
+      TYPE(pwdft_environment_type), POINTER              :: pwdft_env
+      CHARACTER(len=default_string_length)               :: label
+      TYPE(pw_type), POINTER                             :: pw
+      INTEGER(KIND=C_INT), ALLOCATABLE, DIMENSION(:)          :: npts
+      INTEGER                                            :: sirius_mpi_comm
+      INTEGER                                            :: group_size, my_rank, &
+                                                            L1, L2, L3, U1, U2, U3,&
+                                                            size_1, size_2, size_3
+      INTEGER(KIND=C_INT), ALLOCATABLE, DIMENSION(:,:)   :: local_coord, local_size
+      REAL(KIND=C_DOUBLE), ALLOCATABLE, DIMENSION(:, :,:)  :: grid_data
+      LOGICAL(1)                                           :: transform_to_pw
+
+      ! Total size of the box
+      ALLOCATE(npts(3))
+      npts(:) = pw%pw_grid%npts(:)
+
+      ! Communicator
+      sirius_mpi_comm = pw%pw_grid%para%group
+
+      ! Local sizes and coordinates
+      group_size = pw%pw_grid%para%group_size
+      ALLOCATE(local_coord(3,group_size))
+      ALLOCATE(local_size(3,group_size))
+ 
+      my_rank = pw%pw_grid%para%my_pos
+      local_size(:, my_rank) = pw%pw_grid%npts_local(:)
+      local_size = 0
+      local_coord(:, my_rank) = pw%pw_grid%bounds_local(1,:)
+      local_coord = 0
+
+      CALL mp_sum(local_size, sirius_mpi_comm)
+      CALL mp_sum(local_coord, sirius_mpi_comm)
+
+      ! Grid data
+      L1 = pw%pw_grid%bounds_local(1, 1)
+      L2 = pw%pw_grid%bounds_local(1, 2)
+      L3 = pw%pw_grid%bounds_local(1, 3)
+      U1 = pw%pw_grid%bounds_local(2, 1)
+      U2 = pw%pw_grid%bounds_local(2, 2)
+      U3 = pw%pw_grid%bounds_local(2, 3)
+      size_1 = U1 - L1 + 1
+      size_2 = U2 - L2 + 1
+      size_3 = U3 - L3 + 1
+      ALLOCATE(grid_data(size_1, size_2, size_3))
+      grid_data(:,:,:) = pw%cr3d(L1:U1,L2:U2,L3:U3)
+
+      transform_to_pw = .TRUE.
+
+      write(*,*) 'sizes', size_1, size_2, size_3
+
+      CALL sirius_set_rg_values(pwdft_env%gs_handler,string(label), npts(1), local_coord(1,1),local_size(1,1), &
+           sirius_mpi_comm , grid_data(1,1,1), transform_to_pw)
+
+      DEALLOCATE(npts)
+      DEALLOCATE(local_size)
+      DEALLOCATE(local_coord)
+      DEALLOCATE(grid_data)
+
+         END SUBROUTINE cp_sirius_set_rg_values
+#else
+         SUBROUTINE cp_sirius_set_rg_values()
+            CPABORT("Sirius library is missing")
+         END SUBROUTINE cp_sirius_set_rg_values
+
+#endif
+
+#if defined(__SIRIUS)
+         SUBROUTINE cp_sirius_get_rg_values(pwdft_env, pw, label)
+      TYPE(pwdft_environment_type), POINTER              :: pwdft_env
+      CHARACTER(len=default_string_length)               :: label
+      TYPE(pw_type), POINTER                             :: pw
+      INTEGER(KIND=C_INT), ALLOCATABLE, DIMENSION(:)         :: npts
+      INTEGER                                            :: sirius_mpi_comm
+      INTEGER                                            :: group_size, my_rank, &
+                                                            L1, L2, L3, U1, U2, U3,&
+                                                            size_1, size_2, size_3
+      INTEGER(KIND=C_INT), ALLOCATABLE, DIMENSION(:,:)   :: local_coord, local_size
+      REAL(KIND=C_DOUBLE), ALLOCATABLE, DIMENSION(:, :,:)  :: grid_data
+      LOGICAL(1)                                              :: transform_to_rg
+
+      ! Total size of the box
+      ALLOCATE(npts(3))
+      npts(:) = pw%pw_grid%npts(:)
+
+      ! Communicator
+      sirius_mpi_comm = pw%pw_grid%para%group
+
+      ! Local sizes and coordinates
+      group_size = pw%pw_grid%para%group_size
+      ALLOCATE(local_coord(3,group_size))
+      ALLOCATE(local_size(3,group_size))
+ 
+      my_rank = pw%pw_grid%para%my_pos
+      local_size(:, my_rank) = pw%pw_grid%npts_local(:)
+      local_size = 0
+      local_coord(:, my_rank) = pw%pw_grid%bounds_local(1,:)
+      local_coord = 0
+
+      CALL mp_sum(local_size, sirius_mpi_comm)
+      CALL mp_sum(local_coord, sirius_mpi_comm)
+
+      ! Grid data
+      L1 = pw%pw_grid%bounds_local(1, 1)
+      L2 = pw%pw_grid%bounds_local(1, 2)
+      L3 = pw%pw_grid%bounds_local(1, 3)
+      U1 = pw%pw_grid%bounds_local(2, 1)
+      U2 = pw%pw_grid%bounds_local(2, 2)
+      U3 = pw%pw_grid%bounds_local(2, 3)
+      size_1 = U1 - L1 + 1
+      size_2 = U2 - L2 + 1
+      size_3 = U3 - L3 + 1
+      ALLOCATE(grid_data(size_1, size_2, size_3))
+      grid_data = 0.0_dp
+
+      transform_to_rg = .TRUE.
+
+      CALL sirius_get_rg_values(pwdft_env%gs_handler, string(label), npts(1), local_coord(1,1),local_size(1,1), &
+           sirius_mpi_comm , grid_data(1,1,1), transform_to_rg)
+
+      pw%cr3d(L1:U1,L2:U2,L3:U3) = grid_data(:,:,:)
+
+      write(*,*) pw%cr3d(:,:,:)
+
+      DEALLOCATE(local_size)
+      DEALLOCATE(local_coord)
+      DEALLOCATE(grid_data)
+      DEALLOCATE(npts)
+
+         END SUBROUTINE cp_sirius_get_rg_values
+#else
+         SUBROUTINE cp_sirius_get_rg_values()
+            CPABORT("Sirius library is missing")
+         END SUBROUTINE cp_get_rg_values
+
+#endif
+
+
+#if defined(__SIRIUS)
+   SUBROUTINE cp_sirius_get_total_magnetization(mag)
+      REAL(KIND=C_DOUBLE)  :: mag
+      TYPE(C_PTR)                                        :: gs_handler = C_NULL_PTR
+
+   CALL sirius_get_total_magnetization(gs_handler,mag)
+
+   END SUBROUTINE cp_sirius_get_total_magnetization
+
+#else
+   SUBROUTINE cp_sirius_get_total_magnetization()
+            CPABORT("Sirius library is missing")
+   END SUBROUTINE cp_sirius_get_total_magnetization
+#endif
+#if defined(__SIRIUS)
+! **************************************************************************************************
+!> \brief ...
+
 !     **************************************************************************************************
 !     > \brief ...
 !     > \param pwdft_env ...
@@ -146,11 +318,6 @@
 !     >      07.2018 Create the Sirius environment
 !     > \author JHU
 !     **************************************************************************************************
-#if defined(__SIRIUS)
-! **************************************************************************************************
-!> \brief ...
-!> \param pwdft_env ...
-! **************************************************************************************************
          SUBROUTINE cp_sirius_create_env(pwdft_env)
       TYPE(pwdft_environment_type), POINTER              :: pwdft_env
 
@@ -203,6 +370,14 @@
 
             CALL pwdft_env_get(pwdft_env=pwdft_env, pwdft_input=pwdft_section, xc_input=xc_section)
 
+            ! Embedding variables
+            CALL section_vals_val_get(pwdft_section, "REF_EMBED_SUBSYS", l_val=pwdft_env%ref_embed_subsys)
+            CALL section_vals_val_get(pwdft_section, "CLUSTER_EMBED_SUBSYS", l_val=pwdft_env%cluster_embed_subsys)
+            CALL section_vals_val_get(pwdft_section, "HIGH_LEVEL_EMBED_SUBSYS", l_val=pwdft_env%high_level_embed_subsys)
+            CALL section_vals_val_get(pwdft_section, "USE_EXTERNAL_GRID_SIZE", l_val=pwdft_env%use_ext_grid)
+            CALL section_vals_val_get(pwdft_section, "EXTERNAL_GRID_SIZE", i_vals=pwdft_env%ext_grid_size)
+            write(*,*) 'grid size', pwdft_env%ext_grid_size
+
             ! cp2k should *have* a function that return all xc_functionals. Doing
             ! manually is prone to errors
 
@@ -226,6 +401,12 @@
                END DO
             ENDIF
 
+! set externally defined FFT grid size
+            IF (pwdft_env%use_ext_grid) then
+               CALL sirius_set_parameters(sctx, fft_grid_size=pwdft_env%ext_grid_size(1))
+            ENDIF
+            write(*,*) 'set parameters?'
+
 !     import control section
             pwdft_sub_section => section_vals_get_subs_vals(pwdft_section, "control")
             IF (ASSOCIATED(pwdft_sub_section)) THEN
@@ -245,7 +426,12 @@
                k_shift(1) = kk(1)
                k_shift(2) = kk(2)
                k_shift(3) = kk(3)
+
                CALL section_vals_val_get(pwdft_sub_section, "num_mag_dims", i_val=num_mag_dims)
+               pwdft_env%num_mag_dims = num_mag_dims
+
+               write(*,*) 'num mag dims=',num_mag_dims
+
                CALL section_vals_val_get(pwdft_sub_section, "use_symmetry", l_val=use_symmetry)
             ENDIF
 
@@ -453,8 +639,11 @@
                v2(1:3) = vs(1:3)
                CALL sirius_add_atom(sctx, string(label), v2(1), v1(1))
             ENDDO
+
 ! initialize global variables/indices/arrays/etc. of the simulation
+            write(*,*) 'before context initialized?'
             CALL sirius_initialize_context(sctx)
+            write(*,*) 'after context initialized?'
 
             ! strictly speaking the parameter use_symmetry is initialized at the
             ! beginning but it does no harm to do it that way
@@ -467,6 +656,8 @@
             gs_handler = sirius_create_ground_state(ks_handler)
 
             CALL pwdft_env_set(pwdft_env, sctx=sctx, gs_handler=gs_handler, ks_handler=ks_handler)
+
+            write(*,*) 'Came here?'
 
          END SUBROUTINE cp_sirius_create_env
 #else
@@ -485,6 +676,32 @@
             CPABORT("Sirius library is missing")
          END SUBROUTINE cp_sirius_create_env
 #endif
+
+
+
+#if defined(__SIRIUS)
+         SUBROUTINE cp_sirius_set_parameters(pwdft_env, npts)
+      TYPE(pwdft_environment_type), POINTER              :: pwdft_env
+      !TYPE(C_PTR)                                        :: gs_handler = C_NULL_PTR
+      INTEGER(KIND=C_INT), DIMENSION(:)          :: npts
+
+            CPASSERT(ASSOCIATED(pwdft_env))
+            !CALL pwdft_env_get(pwdft_env, gs_handler=gs_handler)
+
+            CALL sirius_set_parameters(pwdft_env%gs_handler, fft_grid_size=npts(1))
+
+            write(*,*) 'Managed to?'
+
+         END SUBROUTINE cp_sirius_set_parameters
+#else
+         SUBROUTINE cp_sirius_set_parameters(pwdft_env)
+      TYPE(pwdft_environment_type), POINTER              :: pwdft_env
+
+            CPASSERT(ASSOCIATED(pwdft_env))
+            CPABORT("Sirius library is missing")
+         END SUBROUTINE cp_sirius_set_parameters
+#endif
+
 
 !     **************************************************************************************************
 !     > \brief ...

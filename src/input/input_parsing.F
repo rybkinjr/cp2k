@@ -200,6 +200,7 @@ CONTAINS
                END DO
             END IF
          ELSE ! token is a keyword
+                     write(*,*) TRIM(token)
             IF (token == "DESCRIBE") THEN
                IF (output_unit > 0) WRITE (output_unit, "(/,' ****** DESCRIPTION ******',/)")
                desc_level = 3

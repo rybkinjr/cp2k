@@ -138,7 +138,8 @@ MODULE force_env_methods
                                               pw_release
    USE pwdft_environment,               ONLY: pwdft_calc_energy_force
    USE pwdft_environment_types,         ONLY: pwdft_env_retain,&
-                                              pwdft_environment_type
+                                              pwdft_environment_type,&
+                                              pwdft_env_get
    USE qmmm_force,                      ONLY: qmmm_calc_energy_force
    USE qmmm_types,                      ONLY: qmmm_env_retain,&
                                               qmmm_env_type
@@ -163,6 +164,9 @@ MODULE force_env_methods
                                               virial_release,&
                                               virial_type,&
                                               zero_virial
+   USE sirius_interface,                ONLY: cp_sirius_set_rg_values,&
+                                              cp_sirius_get_rg_values,&
+                                              cp_sirius_set_parameters
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -1368,6 +1372,7 @@ CONTAINS
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
       TYPE(section_vals_type), POINTER                   :: embed_section, force_env_section, &
                                                             mapping_section, root_section
+      LOGICAL                                            :: call_embed
 
       logger => cp_get_default_logger()
       CPASSERT(ASSOCIATED(force_env))
@@ -1440,35 +1445,54 @@ CONTAINS
             particles(iforce_eval)%list%els(iparticle)%r = particles_embed%els(jparticle)%r
          END DO
 
+         SELECT CASE (force_env%sub_force_env(iforce_eval)%force_env%in_use)
+         CASE (use_qs_force)
+              CALL get_qs_env(qs_env=force_env%sub_force_env(iforce_eval)%force_env%qs_env, pw_env=pw_env)
+              CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
+         CASE (use_pwdft_force)
+             ! CALL cp_sirius_set_parameters(force_env%sub_force_env(iforce_eval)%force_env%pwdft_env, auxbas_pw_pool%pw_grid%npts)
+         END SELECT
          ! Calculate energy and forces for each sub_force_env
          CALL force_env_calc_energy_force(force_env%sub_force_env(iforce_eval)%force_env, &
                                           calc_force=.FALSE., &
                                           skip_external_control=.TRUE.)
 
          ! Call DFT embedding
+         call_embed  = .FALSE.
+         ! Quickstep reference density
          IF (ASSOCIATED(force_env%sub_force_env(iforce_eval)%force_env%qs_env)) THEN
             NULLIFY (dft_control)
             CALL get_qs_env(force_env%sub_force_env(iforce_eval)%force_env%qs_env, dft_control=dft_control)
-            IF (dft_control%qs_control%ref_embed_subsys) THEN
-               ! Now we can optimize the embedding potential
-               CALL dft_embedding(force_env, iforce_eval, energies, converged_embed)
-               IF (.NOT. converged_embed) CPABORT("Embedding potential optimization not converged.")
-            ENDIF
-            ! Deallocate embedding potential on the high-level subsystem
-            IF (dft_control%qs_control%high_level_embed_subsys) THEN
-               CALL get_qs_env(qs_env=force_env%sub_force_env(iforce_eval)%force_env%qs_env, &
-                               embed_pot=embed_pot, spin_embed_pot=spin_embed_pot, pw_env=pw_env)
-               CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
-               CALL pw_pool_give_back_pw(auxbas_pw_pool, embed_pot%pw)
-               CALL pw_release(embed_pot%pw)
-               DEALLOCATE (embed_pot)
-               IF (ASSOCIATED(spin_embed_pot)) THEN
-                  CALL pw_pool_give_back_pw(auxbas_pw_pool, spin_embed_pot%pw)
-                  CALL pw_release(spin_embed_pot%pw)
-                  DEALLOCATE (spin_embed_pot)
-               ENDIF
+            IF (dft_control%qs_control%ref_embed_subsys) call_embed = .TRUE.
+         ENDIF
+         ! SIRIUS reference density
+         IF (ASSOCIATED(force_env%sub_force_env(iforce_eval)%force_env%pwdft_env)) THEN
+            IF (force_env%sub_force_env(iforce_eval)%force_env%pwdft_env%ref_embed_subsys) call_embed = .TRUE.
+         ENDIF
+
+         IF (call_embed) then
+            ! Now we can optimize the embedding potential
+            CALL dft_embedding(force_env, iforce_eval, energies, converged_embed)
+            IF (.NOT. converged_embed) CPABORT("Embedding potential optimization not converged.")
+         ENDIF
+
+         ! Deallocate embedding potential on the high-level subsystem
+         ! Quickstep
+         IF (dft_control%qs_control%high_level_embed_subsys) THEN
+            CALL get_qs_env(qs_env=force_env%sub_force_env(iforce_eval)%force_env%qs_env, &
+                            embed_pot=embed_pot, spin_embed_pot=spin_embed_pot, pw_env=pw_env)
+            CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
+            CALL pw_pool_give_back_pw(auxbas_pw_pool, embed_pot%pw)
+            CALL pw_release(embed_pot%pw)
+            DEALLOCATE (embed_pot)
+            IF (ASSOCIATED(spin_embed_pot)) THEN
+               CALL pw_pool_give_back_pw(auxbas_pw_pool, spin_embed_pot%pw)
+               CALL pw_release(spin_embed_pot%pw)
+               DEALLOCATE (spin_embed_pot)
             ENDIF
          ENDIF
+         ! Do similar thing for SIRIUS
+
 
          ! Only the rank 0 process collect info for each computation
          IF (force_env%sub_force_env(iforce_eval)%force_env%para_env%mepos == &
@@ -1574,7 +1598,7 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(opt_embed_pot_type)                           :: opt_embed
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_r_ref, rho_r_subsys
+      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_r_ref, rho_r_subsys, rho_r_sirius
       TYPE(pw_p_type), POINTER                           :: diff_rho_r, diff_rho_spin, embed_pot, &
                                                             embed_pot_subsys, spin_embed_pot, &
                                                             spin_embed_pot_subsys
@@ -1590,8 +1614,6 @@ CONTAINS
       CALL cite_reference(Huang2011)
       CALL cite_reference(Heaton_Burgess2007)
 
-      CALL get_qs_env(qs_env=force_env%sub_force_env(ref_subsys_number)%force_env%qs_env)
-
       ! Reveal input file
       NULLIFY (logger)
       logger => cp_get_default_logger()
@@ -1601,16 +1623,22 @@ CONTAINS
       NULLIFY (dft_section, input, opt_embed_section)
       NULLIFY (energy, dft_control)
 
-      CALL get_qs_env(qs_env=force_env%sub_force_env(ref_subsys_number)%force_env%qs_env, &
-                      pw_env=pw_env, dft_control=dft_control, rho=rho, energy=energy, &
-                      input=input)
-      nspins = dft_control%nspins
+      ! Reveal the type of reference system
+      SELECT CASE (force_env%sub_force_env(ref_subsys_number)%force_env%in_use)
+      CASE (use_qs_force)
+         CALL get_qs_env(qs_env=force_env%sub_force_env(ref_subsys_number)%force_env%qs_env, &
+                     pw_env=pw_env, dft_control=dft_control, rho=rho, energy=energy, &
+                     input=input)
+         nspins = dft_control%nspins
+         dft_section => section_vals_get_subs_vals(input, "DFT")
+         opt_embed_section => section_vals_get_subs_vals(input, "DFT%QS%OPT_EMBED")
+         ! Rho_r is the reference
+         CALL qs_rho_get(rho_struct=rho, rho_r=rho_r_ref)
 
-      dft_section => section_vals_get_subs_vals(input, "DFT")
-      opt_embed_section => section_vals_get_subs_vals(input, &
-                                                      "DFT%QS%OPT_EMBED")
-      ! Rho_r is the reference
-      CALL qs_rho_get(rho_struct=rho, rho_r=rho_r_ref)
+      CASE (use_pwdft_force)
+         CALL pwdft_env_get(pwdft_env=force_env%sub_force_env(ref_subsys_number)%force_env%pwdft_env, pwdft_input=input)
+         opt_embed_section => section_vals_get_subs_vals(input, "OPT_EMBED")
+      END SELECT
 
       ! We need to understand how to treat spins states
       CALL understand_spin_states(force_env, ref_subsys_number, opt_embed%change_spin, opt_embed%open_shell_embed, &
@@ -1661,13 +1689,34 @@ CONTAINS
          ENDIF
       ENDIF
 
+      ! Find at least one pw environment 
+      DO i_force_eval = 1, ref_subsys_number
+         SELECT CASE (force_env%sub_force_env(i_force_eval)%force_env%in_use)
+         CASE (use_qs_force)
+              NULLIFY (subsys_rho, rho_r_sirius)
+              CALL get_qs_env(force_env%sub_force_env(i_force_eval)%force_env%qs_env, rho=subsys_rho)
+              CALL qs_rho_get(rho_struct=subsys_rho, rho_r=rho_r_sirius)
+         END SELECT
+      ENDDO
+
+
       DO i_force_eval = 1, ref_subsys_number-1
+         
          NULLIFY (subsys_rho, rho_r_subsys, dft_control)
-         CALL get_qs_env(force_env%sub_force_env(i_force_eval)%force_env%qs_env, rho=subsys_rho, energy=energy, &
-                         dft_control=dft_control)
-         nspins_subsys = dft_control%nspins
+
+         SELECT CASE (force_env%sub_force_env(i_force_eval)%force_env%in_use)
+         CASE (use_pwdft_force)
+           rho_r_subsys => rho_r_sirius
+           CALL pw_zero(rho_r_subsys(1)%pw)
+           CALL cp_sirius_get_rg_values(force_env%sub_force_env(i_force_eval)%force_env%pwdft_env, rho_r_subsys(1)%pw, "rho")
+         CASE (use_qs_force)
+           CALL get_qs_env(force_env%sub_force_env(i_force_eval)%force_env%qs_env, rho=subsys_rho, energy=energy, &
+                           dft_control=dft_control)
+           nspins_subsys = dft_control%nspins
+           CALL qs_rho_get(rho_struct=subsys_rho, rho_r=rho_r_subsys)
+         END SELECT
+
          ! Add subsystem densities
-         CALL qs_rho_get(rho_struct=subsys_rho, rho_r=rho_r_subsys)
          DO i_spin = 1, nspins_subsys
             diff_rho_r%pw%cr3d(:, :, :) = diff_rho_r%pw%cr3d(:, :, :)+rho_r_subsys(i_spin)%pw%cr3d(:, :, :)
          ENDDO

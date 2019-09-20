@@ -68,11 +68,17 @@ MODULE pwdft_environment_types
       TYPE(pwdft_energy_type), POINTER                 :: energy => NULL()
       REAL(KIND=dp), DIMENSION(:, :), POINTER          :: forces => NULL()
       REAL(KIND=dp), DIMENSION(3, 3)                   :: stress
+      INTEGER                                          :: num_mag_dims
 !     16 different functionals should be enough
       CHARACTER(len=80)                                :: xc_func(16)
       TYPE(C_PTR)                                      :: sctx = C_NULL_PTR
       TYPE(C_PTR)                                      :: gs_handler = C_NULL_PTR
       TYPE(C_PTR)                                      :: ks_handler = C_NULL_PTR
+      LOGICAL                                          :: ref_embed_subsys, high_level_embed_subsys, &
+                                                          cluster_embed_subsys
+      LOGICAL                                          :: use_ext_grid 
+      INTEGER, DIMENSION(:), POINTER                   :: ext_grid_size
+   
    END TYPE pwdft_environment_type
 
 ! **************************************************************************************************

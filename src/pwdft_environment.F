@@ -114,6 +114,9 @@ CONTAINS
       CALL pwdft_env_set(pwdft_env=pwdft_env, pwdft_input=pwdft_section, &
                          force_env_input=force_env_section, xc_input=xc_section)
 
+      ! No spin polarization by default
+      pwdft_env%num_mag_dims = 0
+
       ! parallel environment
       CALL pwdft_env_set(pwdft_env=pwdft_env, para_env=para_env)
 

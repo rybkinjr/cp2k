@@ -55,8 +55,8 @@ MODULE qs_subsys_types
    TYPE qs_subsys_type
       PRIVATE
       INTEGER                                               :: ref_count = 1
-      INTEGER                                               :: nelectron_total = -1
-      INTEGER                                               :: nelectron_spin(2) = -1
+      INTEGER, PUBLIC                                               :: nelectron_total = -1
+      INTEGER, PUBLIC                                               :: nelectron_spin(2) = -1
       TYPE(cp_subsys_type), POINTER                         :: cp_subsys => Null()
       TYPE(qs_kind_type), DIMENSION(:), POINTER             :: qs_kind_set => Null()
       TYPE(cell_type), POINTER                              :: cell_ref => Null()
