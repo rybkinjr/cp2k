@@ -2587,6 +2587,13 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="DFET_MAT_EMBEDDED", &
+                          description="Calculation with DFT-embedding matrix potential. ", &
+                          usage="DFET_EMBEDDED FALSE", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
       CALL keyword_create(keyword, __LOCATION__, name="DMFET_EMBEDDED", &
                           description="Calculation with DM embedding potential. ", &
                           usage="DMFET_EMBEDDED FALSE", &
@@ -5698,6 +5705,42 @@ CONTAINS
       CALL keyword_release(keyword)
 
    END SUBROUTINE create_optimize_dmfet
+
+! **************************************************************************************************
+!> \brief Input for matrix-based DFET
+!> \param section ...
+!> \author Vladimir Rybkin [10.2019]
+! **************************************************************************************************
+   SUBROUTINE create_optimize_dfet_mat(section)
+      TYPE(section_type), POINTER                        :: section
+
+      CHARACTER(len=*), PARAMETER :: routineN = 'create_optimize_dfet_mat', &
+         routineP = moduleN//':'//routineN
+
+      TYPE(keyword_type), POINTER                        :: keyword
+
+      CPASSERT(.NOT. ASSOCIATED(section))
+      CALL section_create(section, __LOCATION__, name="OPT_DFET_MAT", &
+                          description="This section specifies optional parameters for DFET matrix potential optimization.", &
+                          n_keywords=8, n_subsections=4, repeats=.FALSE.)
+
+      NULLIFY (keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="N_ITER", &
+                          description="Maximum number of iterations "// &
+                          "in the optimization procedure.", &
+                          usage="N_ITER 75", default_i_val=50)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="TRUST_RAD", &
+                          description="Step length "// &
+                          "in the optimization procedure.", &
+                          usage="TRUST_RAD 0.5", default_r_val=0.5_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+   END SUBROUTINE create_optimize_dfet_mat
 
 ! **************************************************************************************************
 !> \brief ...
