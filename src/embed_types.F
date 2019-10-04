@@ -47,6 +47,9 @@ MODULE embed_types
                                               particle_list_type
    USE particle_types,                  ONLY: particle_type
    USE pw_types,                        ONLY: pw_p_type
+   USE dbcsr_api,                       ONLY: &
+        dbcsr_copy, dbcsr_create, dbcsr_init_p, dbcsr_multiply, dbcsr_p_type, dbcsr_release, &
+        dbcsr_set, dbcsr_trace, dbcsr_type, dbcsr_type_no_symmetry
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -93,6 +96,19 @@ MODULE embed_types
       TYPE(lri_kind_type), DIMENSION(:), POINTER :: lri ! Needed to store integrals
 
    END TYPE opt_embed_pot_type
+
+
+   TYPE opt_dfet_mat_pot_type
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER :: p_total, p_subsys, v_mat, p_diff, dfet_mat_term
+      REAL(KIND=dp)                             :: trust_rad, conv_max, conv_int, conv_max_beta, &
+                                                   conv_int_beta
+      LOGICAL                                   :: accept_step, converged, read_dfet_mat_pot, &
+                                                   change_spin, open_shell_embed
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)  :: w_func, max_diff, int_diff
+      INTEGER                                   :: n_iter, i_iter, last_accepted
+      INTEGER, ALLOCATABLE, DIMENSION(:)        :: all_nspins
+
+   END TYPE opt_dfet_mat_pot_type
 
 ! **************************************************************************************************
 !> \brief Type containing main data for matrix DFET

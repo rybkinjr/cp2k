@@ -70,7 +70,8 @@ MODULE force_env_methods
                                               embed_env_type,&
                                               opt_dfet_mat_pot_type,&
                                               opt_dmfet_pot_type,&
-                                              opt_embed_pot_type
+                                              opt_embed_pot_type,&
+                                              opt_dfet_mat_pot_type
    USE external_potential_methods,      ONLY: add_external_potential
    USE fist_environment_types,          ONLY: fist_env_retain,&
                                               fist_environment_type
