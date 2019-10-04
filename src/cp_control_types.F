@@ -322,6 +322,7 @@ MODULE cp_control_types
       LOGICAL                              :: cluster_embed_subsys
       LOGICAL                              :: high_level_embed_subsys
       LOGICAL                              :: dfet_embedded
+      LOGICAL                              :: dfet_mat_embedded
       LOGICAL                              :: dmfet_embedded
    END TYPE qs_control_type
 
@@ -510,7 +511,8 @@ MODULE cp_control_types
                                               correct_surf_dip, &
                                               do_sccs, &
                                               apply_embed_pot, &
-                                              apply_dmfet_pot
+                                              apply_dmfet_pot, &
+                                              apply_dfet_mat_pot
    END TYPE dft_control_type
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'cp_control_types'

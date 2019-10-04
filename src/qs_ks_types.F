@@ -166,6 +166,8 @@ MODULE qs_ks_types
                                                             matrix_ks_aux_fit_im => Null(), &
                                                             matrix_ks_aux_fit_dft => Null(), &
                                                             matrix_ks_aux_fit_hfx => Null()
+      ! Matrix DFET potential
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER             :: dfet_mat_term => Null()
 
       TYPE(qs_rho_type), POINTER                            :: rho => Null(), &
                                                                rho_buffer => Null(), &
@@ -365,7 +367,7 @@ CONTAINS
                          particle_set, energy, force, local_particles, local_molecules, &
                          molecule_kind_set, molecule_set, subsys, cp_subsys, virial, results, atprop, &
                          nkind, natom, dft_control, dbcsr_dist, distribution_2d, pw_env, &
-                         para_env, blacs_env, nelectron_total, nelectron_spin, admm_dm)
+                         para_env, blacs_env, nelectron_total, nelectron_spin, admm_dm, dfet_mat_term)
 
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(pw_type), OPTIONAL, POINTER                   :: v_hartree_rspace
@@ -422,6 +424,9 @@ CONTAINS
       INTEGER, OPTIONAL                                  :: nelectron_total
       INTEGER, DIMENSION(2), OPTIONAL                    :: nelectron_spin
       TYPE(admm_dm_type), OPTIONAL, POINTER              :: admm_dm
+      TYPE(dbcsr_p_type), DIMENSION(:), OPTIONAL, &
+         POINTER                                         :: dfet_mat_term
+
 
       IF (.NOT. ASSOCIATED(ks_env)) CPABORT("get_ks_env: not associated")
       IF (ks_env%ref_count < 1) CPABORT("get_ks_env: ks_env%ref_count<1")
@@ -468,6 +473,8 @@ CONTAINS
       IF (PRESENT(rho_nlcc_g)) rho_nlcc_g => ks_env%rho_nlcc_g
       IF (PRESENT(vppl)) vppl => ks_env%vppl
       IF (PRESENT(vee)) vee => ks_env%vee
+
+      IF (PRESENT(dfet_mat_term)) dfet_mat_term => ks_env%dfet_mat_term
 
       IF (PRESENT(neighbor_list_id)) neighbor_list_id = ks_env%neighbor_list_id
       IF (PRESENT(sab_orb)) sab_orb => ks_env%sab_orb
@@ -616,7 +623,7 @@ CONTAINS
                          sab_se, sab_tbe, sab_core, sab_xb, sab_vdw, sab_scp, sab_almo, sab_kp, &
                          task_list, task_list_aux_fit, task_list_soft, &
                          subsys, dft_control, dbcsr_dist, distribution_2d, pw_env, &
-                         para_env, blacs_env, admm_dm)
+                         para_env, blacs_env, admm_dm, dfet_mat_term)
 
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(pw_type), OPTIONAL, POINTER                   :: v_hartree_rspace
@@ -647,6 +654,8 @@ CONTAINS
       TYPE(cp_para_env_type), OPTIONAL, POINTER          :: para_env
       TYPE(cp_blacs_env_type), OPTIONAL, POINTER         :: blacs_env
       TYPE(admm_dm_type), OPTIONAL, POINTER              :: admm_dm
+      TYPE(dbcsr_p_type), DIMENSION(:), OPTIONAL, &
+         POINTER                                         :: dfet_mat_term
 
       IF (.NOT. ASSOCIATED(ks_env)) CPABORT("set_ks_env: not associated")
       IF (ks_env%ref_count < 1) CPABORT("set_ks_env: ks_env%ref_count<1")
@@ -694,6 +703,8 @@ CONTAINS
       IF (PRESENT(rho_nlcc_g)) ks_env%rho_nlcc_g => rho_nlcc_g
       IF (PRESENT(vppl)) ks_env%vppl => vppl
       IF (PRESENT(vee)) ks_env%vee => vee
+
+      IF (PRESENT(dfet_mat_term)) ks_env%dfet_mat_term => dfet_mat_term
 
       IF (PRESENT(neighbor_list_id)) ks_env%neighbor_list_id = neighbor_list_id
       IF (PRESENT(kpoints)) ks_env%kpoints => kpoints
@@ -825,6 +836,9 @@ CONTAINS
                CALL deallocate_task_list(ks_env%task_list_aux_fit)
             IF (ASSOCIATED(ks_env%task_list_soft)) &
                CALL deallocate_task_list(ks_env%task_list_soft)
+
+            IF (ASSOCIATED(ks_env%dfet_mat_term)) &
+                CALL dbcsr_deallocate_matrix_set(ks_env%dfet_mat_term)
 
             IF (ASSOCIATED(ks_env%rho_nlcc_g)) THEN
                CALL pw_release(ks_env%rho_nlcc_g%pw)

@@ -718,6 +718,7 @@ CONTAINS
       CALL section_vals_val_get(qs_section, "HIGH_LEVEL_EMBED_SUBSYS", l_val=qs_control%high_level_embed_subsys)
       CALL section_vals_val_get(qs_section, "DFET_EMBEDDED", l_val=qs_control%dfet_embedded)
       CALL section_vals_val_get(qs_section, "DMFET_EMBEDDED", l_val=qs_control%dmfet_embedded)
+      CALL section_vals_val_get(qs_section, "DFET_MAT_EMBEDDED", l_val=qs_control%dfet_mat_embedded)
 
       ! Integers gapw
       CALL section_vals_val_get(qs_section, "LMAXN1", i_val=qs_control%gapw_control%lmax_sphere)
