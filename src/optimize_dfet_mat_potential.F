@@ -324,12 +324,6 @@ CONTAINS
          opt_dfet_mat%min_step_len = 1.0*opt_dfet_mat%trust_rad
       Endif
 
-      ! Array to store functional values
-      ALLOCATE (opt_dfet_mat%w_func(opt_dfet_mat%n_iter))
-      opt_dfet_mat%w_func = 0.0_dp
-      ! Trace of reference DM with potential
-      opt_dfet_mat%dfet_mat_corr = 0.0_dp
-
       ! Allocate max_diff and int_diff
       diff_size = 1
       IF (opt_dfet_mat%open_shell_embed) diff_size = 2
