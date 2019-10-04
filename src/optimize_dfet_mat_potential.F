@@ -165,7 +165,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                             :: para_env
       INTEGER                                   :: nelectron_total
       TYPE(section_vals_type), POINTER                   :: ri_section
-      
+
       ! Read the input
       CALL read_opt_dfet_mat_section(opt_dfet_mat, opt_dfet_mat_section, ri_section)
 
@@ -216,7 +216,6 @@ CONTAINS
 
    END SUBROUTINE prepare_dfet_mat_opt
 
-
 ! **************************************************************************************************
 !> \brief ...
 !> \param opt_dmfet ...
@@ -253,7 +252,6 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:,:), POINTER        :: rho_ao_2d, mat_2d
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: gradient
       !TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho_work_ao
-
 
       CALL timeset(routineN, handle)
       nspins = 1
