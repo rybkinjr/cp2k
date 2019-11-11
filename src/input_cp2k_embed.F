@@ -14,7 +14,8 @@ MODULE input_cp2k_embed
                                               cp_print_key_section_create,&
                                               low_print_level
    USE input_constants,                 ONLY: dfet,&
-                                              dmfet
+                                              dmfet,&
+                                              dfet_mat
    USE input_keyword_types,             ONLY: keyword_create,&
                                               keyword_release,&
                                               keyword_type
@@ -63,9 +64,9 @@ CONTAINS
                           description="Select DFET or DMFET.", &
                           usage="EMBED_METHOD DFET", &
                           default_i_val=dfet, &
-                          enum_c_vals=s2a("DFET", "DMFET"), &
-                          enum_desc=s2a("DFET", "DMFET"), &
-                          enum_i_vals=(/dfet, dmfet/))
+                          enum_c_vals=s2a("DFET", "DMFET", "DFET_MAT"), &
+                          enum_desc=s2a("DFET", "DMFET", "DFET_MAT"), &
+                          enum_i_vals=(/dfet, dmfet, dfet_mat/))
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 

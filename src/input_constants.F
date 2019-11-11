@@ -1116,7 +1116,8 @@ MODULE input_constants
                                                negfrun_fermilevel = 1
    ! Type of embedding
    INTEGER, PARAMETER, PUBLIC               :: dfet = 0, &
-                                               dmfet = 1
+                                               dmfet = 1, &
+                                               dfet_mat = 2
 
    ! DFT embedding: optimization of potential
    INTEGER, PARAMETER, PUBLIC               :: embed_steep_desc = 0, &

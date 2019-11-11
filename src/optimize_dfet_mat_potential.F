@@ -8,7 +8,8 @@ MODULE optimize_dfet_mat_potential
                                               cp_blacs_env_release,&
                                               cp_blacs_env_type
    USE cp_control_types,                ONLY: dft_control_type
-   USE cp_dbcsr_operations,             ONLY: copy_fm_to_dbcsr
+   USE cp_dbcsr_operations,             ONLY: copy_fm_to_dbcsr,&
+                                              dbcsr_allocate_matrix_set
    USE cp_fm_struct,                    ONLY: cp_fm_struct_create,&
                                               cp_fm_struct_release,&
                                               cp_fm_struct_type
@@ -29,7 +30,10 @@ MODULE optimize_dfet_mat_potential
                                               dbcsr_type,&
                                               dbcsr_type_no_symmetry,&
                                               dbcsr_add, &
-                                              dbcsr_dot
+                                              dbcsr_dot, &
+                                              dbcsr_copy, &
+                                              dbcsr_set, &
+                                              dbcsr_release_p
    USE embed_types,                     ONLY: opt_dfet_mat_pot_type
    USE input_section_types,             ONLY: section_vals_type,&
                                               section_vals_val_get
@@ -138,8 +142,8 @@ CONTAINS
       nspins = size(opt_dfet_mat%p_diff)
 
       DO ispin = 1, nspins
-         CALL dbcsr_release_p(opt_dfet_mat%p_diff(ispin))
-         CALL dbcsr_release_p(opt_dfet_mat%v_mat(ispin))
+         CALL dbcsr_release_p(opt_dfet_mat%p_diff(ispin)%matrix)
+         CALL dbcsr_release_p(opt_dfet_mat%v_mat(ispin)%matrix)
       ENDDO
       DEALLOCATE (opt_dfet_mat%p_diff)
       DEALLOCATE (opt_dfet_mat%v_mat)
@@ -217,7 +221,7 @@ CONTAINS
             ENDIF
          ENDIF
 
-         ! Special case of a closed-shell subsystem in an open shell embedding: matrix potential
+         ! Special case of a closed-shell subsystem in an open-shell embedding: matrix potential
          ! is here a sum of alpha- and beta- counterparts.
          IF ((nspins .EQ. 1) .AND. (opt_dfet_mat%open_shell_embed)) THEN
             CALL dbcsr_copy(opt_dfet_mat%dfet_mat_term(1)%matrix, opt_dfet_mat%v_mat(1)%matrix)
