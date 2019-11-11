@@ -2194,6 +2194,7 @@ CONTAINS
       TYPE(force_env_type), POINTER                      :: force_env
       INTEGER                                            :: ref_subsys_number
       REAL(KIND=dp), DIMENSION(:), POINTER               :: energies
+      REAL(KIND=dp)                                      :: scale_factor
       LOGICAL                                            :: converged_embed
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'dfet_matrix_embedding', &
