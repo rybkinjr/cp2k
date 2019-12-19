@@ -36,8 +36,10 @@ MODULE optimize_dfet_mat_potential
                                               dbcsr_release_p
    USE embed_types,                     ONLY: opt_dfet_mat_pot_type
    USE input_section_types,             ONLY: section_vals_type,&
-                                              section_vals_val_get
-   USE kinds,                           ONLY: dp
+                                              section_vals_val_get,&
+                                              section_vals_get_subs_vals
+   USE kinds,                           ONLY: dp,&
+                                              default_string_length
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_ks_types,                     ONLY: get_ks_env,&
@@ -45,6 +47,14 @@ MODULE optimize_dfet_mat_potential
                                               set_ks_env
    USE qs_rho_types,                    ONLY: qs_rho_get,&
                                               qs_rho_type
+   USE qs_kind_types,                   ONLY: qs_kind_type
+   USE input_constants,                 ONLY: do_potential_id
+   USE particle_types,                  ONLY: particle_type
+   USE input_cp2k_hfx,                  ONLY: ri_pmat
+   USE hfx_types,                       ONLY: hfx_type,&
+                                              hfx_ri_type,&
+                                              hfx_ri_init_read_input
+   USE hfx_ri,                          ONLY: hfx_ri_update_ks
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -63,9 +73,10 @@ CONTAINS
 !> \param opt_dmfet ...
 !> \param opt_dmfet_section ...
 ! **************************************************************************************************
-   SUBROUTINE read_opt_dfet_mat_section(opt_dfet_mat, opt_dfet_mat_section)
+   SUBROUTINE read_opt_dfet_mat_section(opt_dfet_mat, opt_dfet_mat_section, ri_section)
       TYPE(opt_dfet_mat_pot_type)                        :: opt_dfet_mat
       TYPE(section_vals_type), POINTER                   :: opt_dfet_mat_section
+      TYPE(section_vals_type), POINTER                   :: ri_section
 
       ! Read keywords
 
@@ -75,7 +86,64 @@ CONTAINS
       CALL section_vals_val_get(opt_dfet_mat_section, "TRUST_RAD", &
                                 r_val=opt_dfet_mat%trust_rad)
 
+      NULLIFY(ri_section)
+      ri_section => section_vals_get_subs_vals(opt_dfet_mat_section, "RI")
+
    END SUBROUTINE read_opt_dfet_mat_section
+
+
+
+
+   SUBROUTINE overlap_ri_init(ri_data, ri_section, qs_kind_set, &
+                            particle_set, dft_control, para_env, nelectron_total)
+      TYPE(hfx_ri_type), INTENT(INOUT)                   :: ri_data
+      TYPE(hfx_type)                       :: x_data
+      TYPE(section_vals_type), POINTER                   :: ri_section
+      TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
+      TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
+      TYPE(dft_control_type), POINTER                    :: dft_control
+      TYPE(cp_para_env_type)                             :: para_env
+      INTEGER, INTENT(IN)                                :: nelectron_total
+
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'overlap_ri_init', &
+         routineP = moduleN//':'//routineN
+
+      CHARACTER(LEN=default_string_length)               :: orb_basis_type, ri_basis_type
+      INTEGER                                            :: handle, unit_nr, unit_nr_dbcsr
+      TYPE(section_vals_type), POINTER                   :: hf_sub_section
+
+      CALL timeset(routineN, handle)
+
+      NULLIFY (hf_sub_section)
+
+      ASSOCIATE (hfx_pot=>ri_data%hfx_pot)
+         ! Set by force: potential is identity
+         hfx_pot%potential_type = do_potential_id
+         hfx_pot%omega = x_data%potential_parameter%omega
+         hfx_pot%cutoff_radius = x_data%potential_parameter%cutoff_radius
+      END ASSOCIATE
+      ri_data%ri_section => ri_section
+      ri_data%eps_schwarz = x_data%screening_parameter%eps_schwarz
+
+      unit_nr_dbcsr = 0
+
+      unit_nr = -1
+
+      ! Set by force
+      orb_basis_type = "ORB"
+      ri_basis_type = "RI_HFX"
+
+      CALL hfx_ri_init_read_input(ri_data, ri_section, qs_kind_set, particle_set, &
+                                  orb_basis_type, ri_basis_type, dft_control%auto_basis_ri_hfx, &
+                                  para_env, unit_nr, unit_nr_dbcsr, nelectron_total)
+
+      ! Set by force
+      ri_data%flavor = ri_pmat
+
+
+      CALL timestop(handle)
+
+   END SUBROUTINE overlap_ri_init
 
 ! **************************************************************************************************
 !> \brief ...
@@ -89,9 +157,24 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: opt_dfet_mat_section
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
       INTEGER                                            :: nspins, ispin, diff_size
-
+      TYPE(qs_kind_type), DIMENSION(:), &
+         POINTER                                         :: qs_kind_set
+        TYPE(particle_type), DIMENSION(:), &
+         POINTER                                         :: particle_set
+      TYPE(dft_control_type), POINTER          :: dft_control
+      TYPE(cp_para_env_type), POINTER                             :: para_env
+      INTEGER                                   :: nelectron_total
+      TYPE(hfx_ri_type)                    :: ri_data
+      TYPE(section_vals_type), POINTER                   :: ri_section
+      
       ! Read the input
-      CALL read_opt_dfet_mat_section(opt_dfet_mat, opt_dfet_mat_section)
+      CALL read_opt_dfet_mat_section(opt_dfet_mat, opt_dfet_mat_section, ri_section)
+
+      ! Prepare the ri ovelap calculations
+      CALL get_qs_env(qs_env, qs_kind_set=qs_kind_set, particle_set=particle_set, dft_control=dft_control,&
+                      para_env=para_env, nelectron_total=nelectron_total)
+      CALL  overlap_ri_init(ri_data, ri_section, qs_kind_set, &
+                            particle_set, dft_control, para_env, nelectron_total)
 
       nspins = 1
       IF (opt_dfet_mat%open_shell_embed) THEN
@@ -102,6 +185,9 @@ CONTAINS
       CALL get_qs_env(qs_env, matrix_s=matrix_s)
 
       NULLIFY (opt_dfet_mat%p_total)
+
+      NULLIFY (opt_dfet_mat%p_diff)
+      NULLIFY (opt_dfet_mat%v_mat)
       CALL dbcsr_allocate_matrix_set(opt_dfet_mat%p_diff, nspins)
       CALL dbcsr_allocate_matrix_set(opt_dfet_mat%v_mat, nspins)
       DO ispin = 1, nspins
@@ -130,6 +216,7 @@ CONTAINS
       ALLOCATE (opt_dfet_mat%int_diff(diff_size))
 
    END SUBROUTINE prepare_dfet_mat_opt
+
 
 ! **************************************************************************************************
 !> \brief ...
@@ -166,6 +253,9 @@ CONTAINS
       nspins = 1
       IF (opt_dfet_mat%open_shell_embed) nspins = 2
 
+      CALL hfx_ri_update_ks(qs_env, ri_data, ks_matrix, ehfx, mos, rho_ao, &
+                               geometry_did_change, nspins, hf_fraction)
+
       DO ispin = 1, nspins
          CALL dbcsr_add(opt_dfet_mat%v_mat(ispin)%matrix, opt_dfet_mat%p_diff(ispin)%matrix,&
                alpha_scalar=1.0_dp, beta_scalar=-opt_dfet_mat%trust_rad)
@@ -200,6 +290,8 @@ CONTAINS
       CALL get_qs_env(qs_env, matrix_s=matrix_s, dft_control=dft_control, ks_env=ks_env)
       nspins = dft_control%nspins
 
+      NULLIFY (opt_dfet_mat%dfet_mat_term)
+      CALL dbcsr_allocate_matrix_set(opt_dfet_mat%dfet_mat_term, nspins)
       DO ispin = 1, nspins
          ALLOCATE (opt_dfet_mat%dfet_mat_term(ispin)%matrix)
          CALL dbcsr_init_p(opt_dfet_mat%dfet_mat_term(ispin)%matrix)
