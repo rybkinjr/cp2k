@@ -41,7 +41,7 @@ MODULE input_cp2k_hfx
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'input_cp2k_hfx'
    INTEGER, PARAMETER, PUBLIC                 :: ri_mo = 1, ri_pmat = 2
 
-   PUBLIC :: create_hfx_section
+   PUBLIC :: create_hfx_section, create_hf_ri_section
 
 CONTAINS
 
