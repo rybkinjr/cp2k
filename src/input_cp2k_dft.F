@@ -148,6 +148,7 @@ MODULE input_cp2k_dft
    USE qs_mom_types,                    ONLY: create_mom_section
    USE string_utilities,                ONLY: newline,&
                                               s2a
+   USE input_cp2k_hfx,                   ONLY: create_hf_ri_section
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -6188,6 +6189,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_optimize_dfet_mat(section)
       TYPE(section_type), POINTER                        :: section
+      TYPE(section_type), POINTER                        :: subsection
 
       CHARACTER(len=*), PARAMETER :: routineN = 'create_optimize_dfet_mat', &
          routineP = moduleN//':'//routineN

@@ -107,6 +107,7 @@ MODULE optimize_dfet_mat_potential
                                               cp_print_key_unit_nr
    USE cp_files,                        ONLY: close_file,&
                                               open_file
+                                              hfx_ri_init_read_input
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -336,6 +337,7 @@ CONTAINS
              opt_dfet_mat%v_mat)
 
    END SUBROUTINE prepare_dfet_mat_opt
+
 
 ! **************************************************************************************************
 !> \brief ...
