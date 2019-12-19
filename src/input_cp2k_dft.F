@@ -139,6 +139,7 @@ MODULE input_cp2k_dft
    USE qs_mom_types,                    ONLY: create_mom_section
    USE string_utilities,                ONLY: newline,&
                                               s2a
+   USE input_cp2k_hfx,                   ONLY: create_hf_ri_section
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -2826,12 +2827,16 @@ CONTAINS
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
-      ! Embedding subsections: DFET and DMFET
+      ! Embedding subsections: DFET, DMFET, DFET_MAT
       CALL create_optimize_embed(subsection)
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
       CALL create_optimize_dmfet(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
+      CALL create_optimize_dfet_mat(subsection)
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
@@ -5713,6 +5718,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_optimize_dfet_mat(section)
       TYPE(section_type), POINTER                        :: section
+      TYPE(section_type), POINTER                        :: subsection
 
       CHARACTER(len=*), PARAMETER :: routineN = 'create_optimize_dfet_mat', &
          routineP = moduleN//':'//routineN
@@ -5739,6 +5745,11 @@ CONTAINS
                           usage="TRUST_RAD 0.5", default_r_val=0.5_dp)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
+
+      NULLIFY (subsection)
+      CALL create_hf_ri_section(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
 
    END SUBROUTINE create_optimize_dfet_mat
 
