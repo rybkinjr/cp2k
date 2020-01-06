@@ -46,6 +46,8 @@ MODULE embed_types
    USE dbcsr_api,                       ONLY: &
         dbcsr_copy, dbcsr_create, dbcsr_init_p, dbcsr_multiply, dbcsr_p_type, dbcsr_release, &
         dbcsr_set, dbcsr_trace, dbcsr_type, dbcsr_type_no_symmetry
+   USE hfx_types,                       ONLY: hfx_type,&
+                                              hfx_ri_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -103,6 +105,7 @@ MODULE embed_types
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)  :: w_func, max_diff, int_diff
       INTEGER                                   :: n_iter, i_iter, last_accepted
       INTEGER, ALLOCATABLE, DIMENSION(:)        :: all_nspins
+      TYPE(hfx_ri_type)                    :: ri_data
 
    END TYPE opt_dfet_mat_pot_type
 
