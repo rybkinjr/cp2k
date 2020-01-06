@@ -40,6 +40,8 @@ MODULE optimize_dfet_mat_potential
                                               section_vals_get_subs_vals
    USE kinds,                           ONLY: dp,&
                                               default_string_length
+   USE input_section_types,             ONLY: section_vals_get_subs_vals,&
+                                              section_vals_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_ks_types,                     ONLY: get_ks_env,&
@@ -184,7 +186,6 @@ CONTAINS
       CALL get_qs_env(qs_env, matrix_s=matrix_s)
 
       NULLIFY (opt_dfet_mat%p_total)
-
       NULLIFY (opt_dfet_mat%p_diff)
       NULLIFY (opt_dfet_mat%v_mat)
       CALL dbcsr_allocate_matrix_set(opt_dfet_mat%p_diff, nspins)
@@ -215,7 +216,6 @@ CONTAINS
       ALLOCATE (opt_dfet_mat%int_diff(diff_size))
 
    END SUBROUTINE prepare_dfet_mat_opt
-
 
 ! **************************************************************************************************
 !> \brief ...
@@ -253,7 +253,6 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:,:), POINTER        :: rho_ao_2d, mat_2d
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: gradient
       !TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho_work_ao
-
 
       CALL timeset(routineN, handle)
       nspins = 1
@@ -293,8 +292,7 @@ CONTAINS
                             hf_fraction=hf_fraction)
 
       DO ispin = 1, nspins
-         CALL dbcsr_add(opt_dfet_mat%v_mat(ispin)%matrix, gradient(ispin)%matrix,&
-               alpha_scalar=1.0_dp, beta_scalar=-opt_dfet_mat%trust_rad)
+         CALL dbcsr_add(opt_dfet_mat%v_mat(ispin)%matrix, gradient(ispin)%matrix,alpha_scalar=1.0_dp, beta_scalar=1.0_dp)
       ENDDO
 
       CALL timestop(handle)
