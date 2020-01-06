@@ -2364,7 +2364,7 @@ CONTAINS
          CALL check_dfet_mat(opt_dfet_mat, force_env%sub_force_env(ref_subsys_number)%force_env%qs_env)
 
          ! Take the optimization step
-         CALL dfet_mat_opt_step(opt_dfet_mat)
+         CALL dfet_mat_opt_step(opt_dfet_mat, force_env%sub_force_env(ref_subsys_number)%force_env%qs_env)
          CALL release_dfet_mat_term(opt_dfet_mat)
 
       ENDDO ! i_iter

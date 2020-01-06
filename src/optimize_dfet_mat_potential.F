@@ -164,7 +164,6 @@ CONTAINS
       TYPE(dft_control_type), POINTER          :: dft_control
       TYPE(cp_para_env_type), POINTER                             :: para_env
       INTEGER                                   :: nelectron_total
-      TYPE(hfx_ri_type)                    :: ri_data
       TYPE(section_vals_type), POINTER                   :: ri_section
       
       ! Read the input
@@ -173,7 +172,7 @@ CONTAINS
       ! Prepare the ri ovelap calculations
       CALL get_qs_env(qs_env, qs_kind_set=qs_kind_set, particle_set=particle_set, dft_control=dft_control,&
                       para_env=para_env, nelectron_total=nelectron_total)
-      CALL  overlap_ri_init(ri_data, ri_section, qs_kind_set, &
+      CALL  overlap_ri_init(opt_dfet_mat%ri_data, ri_section, qs_kind_set, &
                             particle_set, dft_control, para_env, nelectron_total)
 
       nspins = 1
@@ -242,22 +241,59 @@ CONTAINS
 !> \param opt_dmfet ...
 !> \param qs_env ...
 ! **************************************************************************************************
-   SUBROUTINE dfet_mat_opt_step(opt_dfet_mat)
-      TYPE(opt_dfet_mat_pot_type)                           :: opt_dfet_mat
+   SUBROUTINE dfet_mat_opt_step(opt_dfet_mat, qs_env)
+      TYPE(opt_dfet_mat_pot_type)                        :: opt_dfet_mat
+      TYPE(qs_environment_type), POINTER                 :: qs_env
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'dfet_opt_step', routineP = moduleN//':'//routineN
 
+      REAL(KIND=dp)                                      :: hf_fraction, ehfx
+      LOGICAL                                            :: geometry_did_change
       INTEGER                                            :: handle, ispin, nspins
+      TYPE(dbcsr_p_type), DIMENSION(:,:), POINTER        :: rho_ao_2d, mat_2d
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: gradient
+      !TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho_work_ao
+
 
       CALL timeset(routineN, handle)
       nspins = 1
       IF (opt_dfet_mat%open_shell_embed) nspins = 2
 
-      CALL hfx_ri_update_ks(qs_env, ri_data, ks_matrix, ehfx, mos, rho_ao, &
-                               geometry_did_change, nspins, hf_fraction)
+      ! DM difference serve as rho_ao
+      !rho_ao => opt_dfet_mat%p_diff
+      rho_ao_2d(1:nspins, 1:1) => opt_dfet_mat%p_diff
+
+      ! Create a working rho environment
+      !NULLIFY (rho_work_ao)
+      !NULLIFY (rho_ao_2d)
+      !CALL dbcsr_allocate_matrix_set(rho_work_ao, nspins)
+      !DO ispin = 1, nspins
+      !   ALLOCATE (rho_work_ao(ispin)%matrix)
+      !   CALL dbcsr_init_p(rho_work_ao(ispin)%matrix)
+      !   CALL dbcsr_create(rho_work_ao(ispin)%matrix, template=opt_dfet_mat%p_diff(ispin)%matrix)
+      !ENDDO
+      !rho_ao_2d(1:nspins, 1:1) => rho_work_ao(1:nspins)
+
+      NULLIFY(gradient)
+      CALL dbcsr_allocate_matrix_set(gradient, nspins)
+      DO ispin = 1, nspins
+         ALLOCATE (gradient(ispin)%matrix)
+         CALL dbcsr_init_p(gradient(ispin)%matrix)
+         CALL dbcsr_create(gradient(ispin)%matrix, template=opt_dfet_mat%v_mat(1)%matrix)
+      ENDDO
+      mat_2d(1:nspins, 1:1) => gradient(1:nspins)
+
+      ! Array to store functional values
+      geometry_did_change = .FALSE.
+      hf_fraction = 1.0_dp
+
+      ! Compute the gradient in HFX-like update
+      CALL hfx_ri_update_ks(qs_env=qs_env, ri_data=opt_dfet_mat%ri_data, ks_matrix=mat_2d, ehfx=ehfx, &
+                            rho_ao=rho_ao_2d, geometry_did_change = geometry_did_change, nspins=nspins, &
+                            hf_fraction=hf_fraction)
 
       DO ispin = 1, nspins
-         CALL dbcsr_add(opt_dfet_mat%v_mat(ispin)%matrix, opt_dfet_mat%p_diff(ispin)%matrix,&
+         CALL dbcsr_add(opt_dfet_mat%v_mat(ispin)%matrix, gradient(ispin)%matrix,&
                alpha_scalar=1.0_dp, beta_scalar=-opt_dfet_mat%trust_rad)
       ENDDO
 
