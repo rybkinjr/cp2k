@@ -99,7 +99,7 @@ CONTAINS
    SUBROUTINE overlap_ri_init(ri_data, ri_section, qs_kind_set, &
                             particle_set, dft_control, para_env, nelectron_total)
       TYPE(hfx_ri_type), INTENT(INOUT)                   :: ri_data
-      TYPE(hfx_type)                       :: x_data
+      !TYPE(hfx_type)                       :: x_data
       TYPE(section_vals_type), POINTER                   :: ri_section
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
@@ -118,14 +118,19 @@ CONTAINS
 
       NULLIFY (hf_sub_section)
 
+      ! Temprorary here
+      ri_data%hfx_pot%omega = 0.0_dp
+      ri_data%hfx_pot%cutoff_radius = 0.0_dp
+      ri_data%eps_schwarz = 0.0_dp
+
       ASSOCIATE (hfx_pot=>ri_data%hfx_pot)
          ! Set by force: potential is identity
          hfx_pot%potential_type = do_potential_id
-         hfx_pot%omega = x_data%potential_parameter%omega
-         hfx_pot%cutoff_radius = x_data%potential_parameter%cutoff_radius
+         !hfx_pot%omega = x_data%potential_parameter%omega
+         !hfx_pot%cutoff_radius = x_data%potential_parameter%cutoff_radius
       END ASSOCIATE
       ri_data%ri_section => ri_section
-      ri_data%eps_schwarz = x_data%screening_parameter%eps_schwarz
+      !ri_data%eps_schwarz = x_data%screening_parameter%eps_schwarz
 
       unit_nr_dbcsr = 0
 
@@ -140,7 +145,7 @@ CONTAINS
                                   para_env, unit_nr, unit_nr_dbcsr, nelectron_total)
 
       ! Set by force
-      ri_data%flavor = ri_pmat
+      !ri_data%flavor = ri_pmat
 
 
       CALL timestop(handle)
@@ -247,12 +252,11 @@ CONTAINS
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'dfet_opt_step', routineP = moduleN//':'//routineN
 
-      REAL(KIND=dp)                                      :: hf_fraction, ehfx
+      REAL(KIND=dp)                                      :: hf_fraction, ehfx, step
       LOGICAL                                            :: geometry_did_change
       INTEGER                                            :: handle, ispin, nspins
       TYPE(dbcsr_p_type), DIMENSION(:,:), POINTER        :: rho_ao_2d, mat_2d
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: gradient
-      !TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho_work_ao
 
       CALL timeset(routineN, handle)
       nspins = 1
@@ -261,17 +265,6 @@ CONTAINS
       ! DM difference serve as rho_ao
       !rho_ao => opt_dfet_mat%p_diff
       rho_ao_2d(1:nspins, 1:1) => opt_dfet_mat%p_diff
-
-      ! Create a working rho environment
-      !NULLIFY (rho_work_ao)
-      !NULLIFY (rho_ao_2d)
-      !CALL dbcsr_allocate_matrix_set(rho_work_ao, nspins)
-      !DO ispin = 1, nspins
-      !   ALLOCATE (rho_work_ao(ispin)%matrix)
-      !   CALL dbcsr_init_p(rho_work_ao(ispin)%matrix)
-      !   CALL dbcsr_create(rho_work_ao(ispin)%matrix, template=opt_dfet_mat%p_diff(ispin)%matrix)
-      !ENDDO
-      !rho_ao_2d(1:nspins, 1:1) => rho_work_ao(1:nspins)
 
       NULLIFY(gradient)
       CALL dbcsr_allocate_matrix_set(gradient, nspins)
@@ -282,8 +275,8 @@ CONTAINS
       ENDDO
       mat_2d(1:nspins, 1:1) => gradient(1:nspins)
 
-      ! Array to store functional values
-      geometry_did_change = .FALSE.
+      ! Some settings
+      geometry_did_change = .TRUE.
       hf_fraction = 1.0_dp
 
       ! Compute the gradient in HFX-like update
@@ -291,9 +284,17 @@ CONTAINS
                             rho_ao=rho_ao_2d, geometry_did_change = geometry_did_change, nspins=nspins, &
                             hf_fraction=hf_fraction)
 
+      step = opt_dfet_mat%trust_rad
       DO ispin = 1, nspins
-         CALL dbcsr_add(opt_dfet_mat%v_mat(ispin)%matrix, gradient(ispin)%matrix,alpha_scalar=1.0_dp, beta_scalar=1.0_dp)
+         CALL dbcsr_add(opt_dfet_mat%v_mat(ispin)%matrix, gradient(ispin)%matrix,alpha_scalar=1.0_dp, beta_scalar=step)
       ENDDO
+
+      ! Deallocate gradient
+      DO ispin = 1, nspins
+         CALL dbcsr_release(gradient(ispin)%matrix)
+         DEALLOCATE (gradient(ispin)%matrix)
+      ENDDO
+      DEALLOCATE (gradient)
 
       CALL timestop(handle)
 
@@ -305,61 +306,98 @@ CONTAINS
 !> \param opt_dmfet ...
 !> \param i_force_eval ...
 ! **************************************************************************************************
-   SUBROUTINE dfet_mat_ks_matrix(qs_env, opt_dfet_mat, i_force_eval)
-      TYPE(qs_environment_type), POINTER                 :: qs_env
+   SUBROUTINE dfet_mat_ks_matrix(qs_env, qs_env_ref, opt_dfet_mat, i_force_eval)
+      TYPE(qs_environment_type), POINTER                 :: qs_env, qs_env_ref
       TYPE(opt_dfet_mat_pot_type)                        :: opt_dfet_mat
       INTEGER                                            :: i_force_eval
 
       INTEGER                                            :: ispin, nspins
-      LOGICAL                                            :: my_change_spin
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
-      TYPE(dft_control_type), POINTER                    :: dft_control
+      LOGICAL                                            :: my_change_spin, geometry_did_change
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s, term_local
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
+      REAL(KIND=dp)                                      :: trace, ehfx, hf_fraction
+      TYPE(dbcsr_p_type), DIMENSION(:,:), POINTER        :: rho_ao_2d, mat_2d
 
       my_change_spin = .FALSE.
       IF ((opt_dfet_mat%change_spin) .AND. (i_force_eval .EQ. 2)) my_change_spin = .TRUE.
 
       ! Get Kohn-Sham environment, Kohn-Sham matrix, overlap ...
       NULLIFY (ks_env)
-      CALL get_qs_env(qs_env, matrix_s=matrix_s, dft_control=dft_control, ks_env=ks_env)
-      nspins = dft_control%nspins
+      CALL get_qs_env(qs_env, matrix_s=matrix_s, ks_env=ks_env)
+      nspins = 1
+      IF (opt_dfet_mat%open_shell_embed) nspins = 2
 
       NULLIFY (opt_dfet_mat%dfet_mat_term)
       CALL dbcsr_allocate_matrix_set(opt_dfet_mat%dfet_mat_term, nspins)
+      NULLIFY(term_local)
+      CALL dbcsr_allocate_matrix_set(term_local, nspins)
       DO ispin = 1, nspins
          ALLOCATE (opt_dfet_mat%dfet_mat_term(ispin)%matrix)
          CALL dbcsr_init_p(opt_dfet_mat%dfet_mat_term(ispin)%matrix)
-         CALL dbcsr_create(opt_dfet_mat%dfet_mat_term(ispin)%matrix, template=matrix_s(1)%matrix)
-         CALL dbcsr_copy(opt_dfet_mat%dfet_mat_term(ispin)%matrix, matrix_s(1)%matrix)
-         CALL dbcsr_set(opt_dfet_mat%dfet_mat_term(ispin)%matrix, 0.0_dp)
+         !CALL dbcsr_create(opt_dfet_mat%dfet_mat_term(ispin)%matrix, template=matrix_s(1)%matrix)
+         CALL dbcsr_create(opt_dfet_mat%dfet_mat_term(ispin)%matrix, template=opt_dfet_mat%v_mat(1)%matrix)
+         !CALL dbcsr_copy(opt_dfet_mat%dfet_mat_term(ispin)%matrix, matrix_s(1)%matrix)
+         !CALL dbcsr_copy(opt_dfet_mat%dfet_mat_term(ispin)%matrix, opt_dfet_mat%v_mat(1)%matrix)
+         !CALL dbcsr_set(opt_dfet_mat%dfet_mat_term(ispin)%matrix, 0.0_dp)
+         ALLOCATE (term_local(ispin)%matrix)
+         CALL dbcsr_init_p(term_local(ispin)%matrix)
+         !CALL dbcsr_create(term_local(ispin)%matrix, template=matrix_s(1)%matrix)
+         CALL dbcsr_create(term_local(ispin)%matrix, template=opt_dfet_mat%v_mat(1)%matrix)
+         !CALL dbcsr_copy(term_local(ispin)%matrix, matrix_s(1)%matrix)
+         !CALL dbcsr_copy(term_local(ispin)%matrix, opt_dfet_mat%v_mat(1)%matrix)
+         !CALL dbcsr_set(term_local(ispin)%matrix, 0.0_dp)
       ENDDO
+
+      !
+      ! Apply HFX-like update to compte the dfet_mat_term
+      !
+      mat_2d(1:nspins, 1:1) => term_local
+      ! Matrix potential serve as rho_ao
+      rho_ao_2d(1:nspins, 1:1) => opt_dfet_mat%v_mat
+      ! Some settings
+      geometry_did_change = .TRUE.
+      hf_fraction = 1.0_dp
+
+      ! Compute the gradient in HFX-like update
+      CALL hfx_ri_update_ks(qs_env=qs_env_ref, ri_data=opt_dfet_mat%ri_data, ks_matrix=mat_2d, ehfx=ehfx, &
+                            rho_ao=rho_ao_2d, geometry_did_change = geometry_did_change, nspins=nspins, &
+                            hf_fraction=hf_fraction)
 
       DO ispin = 1, nspins
 
          IF (.NOT. my_change_spin) THEN
-            CALL dbcsr_copy(opt_dfet_mat%dfet_mat_term(ispin)%matrix, opt_dfet_mat%v_mat(ispin)%matrix)
+            CALL dbcsr_copy(opt_dfet_mat%dfet_mat_term(ispin)%matrix, term_local(ispin)%matrix)
          ELSE
             IF (ispin .EQ. 1) THEN
-               CALL dbcsr_copy(opt_dfet_mat%dfet_mat_term(ispin)%matrix, opt_dfet_mat%v_mat(2)%matrix)
+               CALL dbcsr_copy(opt_dfet_mat%dfet_mat_term(ispin)%matrix, term_local(2)%matrix)
             ENDIF
             IF (ispin .EQ. 2) THEN
-               CALL dbcsr_copy(opt_dfet_mat%dfet_mat_term(ispin)%matrix, opt_dfet_mat%v_mat(1)%matrix)
+               CALL dbcsr_copy(opt_dfet_mat%dfet_mat_term(ispin)%matrix, term_local(1)%matrix)
             ENDIF
          ENDIF
 
          ! Special case of a closed-shell subsystem in an open-shell embedding: matrix potential
          ! is here a sum of alpha- and beta- counterparts.
          IF ((nspins .EQ. 1) .AND. (opt_dfet_mat%open_shell_embed)) THEN
-            CALL dbcsr_copy(opt_dfet_mat%dfet_mat_term(1)%matrix, opt_dfet_mat%v_mat(1)%matrix)
+            CALL dbcsr_copy(opt_dfet_mat%dfet_mat_term(1)%matrix, term_local(1)%matrix)
             ! Add alpha- and beta- parts
-            CALL dbcsr_add(opt_dfet_mat%dfet_mat_term(1)%matrix, opt_dfet_mat%v_mat(2)%matrix,&
+            CALL dbcsr_add(opt_dfet_mat%dfet_mat_term(1)%matrix, term_local(2)%matrix,&
                            alpha_scalar=1.0_dp, beta_scalar=1.0_dp)
          ENDIF
 
       ENDDO
+      CALL dbcsr_trace(opt_dfet_mat%dfet_mat_term(1)%matrix, trace)
+      write(*,*) 'dfet_mat_Term', trace
 
-      ! Set embedding potentials in the Kphn-Sham environment
+      ! Set embedding potentials in the Kohn-Sham environment
       CALL set_ks_env(ks_env=ks_env, dfet_mat_term=opt_dfet_mat%dfet_mat_term)
+
+      ! Release the local term
+      DO ispin = 1, nspins
+         CALL dbcsr_release_p(term_local(ispin)%matrix)
+         CALL dbcsr_release_p(term_local(ispin)%matrix)
+      ENDDO
+      DEALLOCATE (term_local)
 
    END SUBROUTINE dfet_mat_ks_matrix
 
@@ -369,16 +407,16 @@ CONTAINS
       TYPE(opt_dfet_mat_pot_type)                        :: opt_dfet_mat
       TYPE(qs_environment_type), POINTER                 :: qs_env
       INTEGER                                            :: handle, ispin, nspins
+      TYPE(dft_control_type), POINTER                    :: dft_control
       REAL(KIND=dp)                                      :: trace_tmp, dfet_mat_corr
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho_ao
-      TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(qs_rho_type), POINTER                         :: rho
       CHARACTER(LEN=*), PARAMETER :: routineN = 'add_dfet_mat_to_w_func', routineP = moduleN//':'//routineN
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
 
       CALL timeset(routineN, handle)
 
-      CALL get_qs_env(qs_env, rho=rho, dft_control=dft_control, ks_env=ks_env)
+      CALL get_qs_env(qs_env, rho=rho, ks_env=ks_env)
 
       CALL qs_rho_get(rho, rho_ao=rho_ao)
 
@@ -435,14 +473,21 @@ CONTAINS
       TYPE(opt_dfet_mat_pot_type)                           :: opt_dfet_mat
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      REAL(KIND=dp)                                      :: diff, diff_beta
+      REAL(KIND=dp)                                      :: diff, diff_beta, nel, nel_tot, trace, s_sq, dp_sq
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
 
       CALL get_qs_env(qs_env, matrix_s=matrix_s)
 
 
       CALL dbcsr_dot(opt_dfet_mat%p_diff(1)%matrix, matrix_s(1)%matrix,  diff)
-      write(*,*) 'diff', diff
+      CALL dbcsr_dot(opt_dfet_mat%p_diff(1)%matrix, opt_dfet_mat%p_diff(1)%matrix,  dp_sq)
+      CALL dbcsr_dot(opt_dfet_mat%p_subsys(1)%matrix, matrix_s(1)%matrix,  nel)
+      CALL dbcsr_dot(opt_dfet_mat%p_total(1)%matrix, matrix_s(1)%matrix,  nel_tot)
+      CALL dbcsr_dot(matrix_s(1)%matrix, matrix_s(1)%matrix,  s_sq)
+      CALL dbcsr_trace(opt_dfet_mat%p_diff(1)%matrix, trace)
+      write(*,*) 'diff', diff, 'n el', nel, nel_tot, 'diff trace', trace, 's_s_trace', s_sq, 'deltap*deltap trace',dp_sq
+      CALL dbcsr_trace(matrix_s(1)%matrix, trace)
+      write(*,*) 'overlap trace', trace
 
       IF (opt_dfet_mat%open_shell_embed) THEN
          CALL dbcsr_dot(opt_dfet_mat%p_diff(1)%matrix, matrix_s(1)%matrix,  diff_beta)

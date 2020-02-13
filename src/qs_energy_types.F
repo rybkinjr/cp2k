@@ -66,7 +66,8 @@ MODULE qs_energy_types
                        kinetic, & !total kinetic energy [rk]
                        s_square, &
                        surf_dipole, &
-                       embed_corr ! correction for embedding potential
+                       embed_corr, & ! correction for embedding potential
+                       e_dfet_mat    ! correction for matrix embedding potential
       REAL(KIND=dp), DIMENSION(:), POINTER :: ddapc_restraint
    END TYPE qs_energy_type
 

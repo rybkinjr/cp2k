@@ -128,7 +128,7 @@ MODULE qs_ks_methods
    USE qs_ks_utils,                     ONLY: &
         calc_v_sic_rspace, calculate_zmp_potential, compute_matrix_vxc, &
         get_embed_potential_energy, low_spin_roks, print_densities, print_detailed_energy, &
-        sic_explicit_orbitals, sum_up_and_integrate
+        sic_explicit_orbitals, sum_up_and_integrate, dfet_ks_matrix
    USE qs_mo_types,                     ONLY: get_mo_set,&
                                               mo_set_p_type,&
                                               mo_set_type
@@ -626,6 +626,11 @@ CONTAINS
 !!    Adiabatic rescaling  only if do_hfx; right?????
       END IF !do_hfx
 
+      ! Add matrix DFET potential
+      IF (dft_control%apply_dfet_mat_pot) THEN
+         CALL dfet_ks_matrix(qs_env, ks_matrix, energy%e_dfet_mat)
+      Endif
+
       IF (do_ppl .AND. calculate_forces) THEN
          CPASSERT(.NOT. gapw)
          DO ispin = 1, nspins
@@ -865,6 +870,7 @@ CONTAINS
                      energy%sccs_pol + energy%sccs_mpc + energy%cdft
 
       IF (dft_control%apply_embed_pot) energy%total = energy%total + energy%embed_corr
+      IF (dft_control%apply_dfet_mat_pot) energy%total = energy%total + energy%e_dfet_mat
 
       IF (abnormal_value(energy%total)) &
          CPABORT("KS energy is an abnormal value (NaN/Inf).")
