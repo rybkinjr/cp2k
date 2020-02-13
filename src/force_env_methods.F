@@ -2179,7 +2179,7 @@ CONTAINS
 
       INTEGER                                            :: cluster_subsys_num, handle, &
                                                             i_force_eval, i_iter, output_unit
-      REAL(KIND=dp)                                      :: cluster_energy, corr
+      REAL(KIND=dp)                                      :: cluster_energy, corr, trace
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dft_control_type), POINTER                    :: dft_control
@@ -2296,17 +2296,23 @@ CONTAINS
 
          ! Loop over force evaluations
          DO i_force_eval = 1, ref_subsys_number-1
+            write(*,*) 'force_eval = ', i_force_eval
 
             ! Switch on external potential in the subsystems
             NULLIFY (dft_control)
             CALL get_qs_env(force_env%sub_force_env(i_force_eval)%force_env%qs_env, dft_control=dft_control)
             dft_control%apply_dfet_mat_pot = .TRUE.
-            CALL dfet_mat_ks_matrix(force_env%sub_force_env(i_force_eval)%force_env%qs_env, opt_dfet_mat, i_force_eval)
+            write(*,*) 'Came here?'
+            CALL dfet_mat_ks_matrix(force_env%sub_force_env(i_force_eval)%force_env%qs_env, &
+                                    force_env%sub_force_env(ref_subsys_number)%force_env%qs_env, & 
+                                    opt_dfet_mat, i_force_eval)
+            write(*,*) 'Came over here?'
 
             ! Calculate the new density
             CALL force_env_calc_energy_force(force_env=force_env%sub_force_env(i_force_eval)%force_env, &
                                              calc_force=.FALSE., &
                                              skip_external_control=.TRUE.)
+            write(*,*) 'Calculated the energy?'
 
             ! Extract subsystem density matrix and energy
             NULLIFY (energy)
@@ -2325,6 +2331,8 @@ CONTAINS
             CALL qs_rho_get(rho, rho_ao=opt_dfet_mat%p_subsys)
         
             nspins_subsys = size(opt_dfet_mat%p_subsys)
+            CALL dbcsr_trace(opt_dfet_mat%p_subsys(1)%matrix, trace)
+            write(*,*) 'trace one', trace
      
             IF (opt_dfet_mat%open_shell_embed) THEN ! Spin part
                IF (nspins_subsys .EQ. 2) THEN ! The subsystem makes contribution if it is spin-polarized
