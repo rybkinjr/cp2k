@@ -544,6 +544,12 @@ CONTAINS
       INTEGER                                            :: ispin, nspins
       REAL(kind=dp)                                      :: denom, numer
 
+      step = opt_dfet_mat%trust_rad
+      DO ispin = 1, nspins
+         CALL dbcsr_add(opt_dfet_mat%v_mat(ispin)%matrix, gradient(ispin)%matrix,alpha_scalar=1.0_dp, beta_scalar=step)
+      ENDDO
+
+      ! Deallocate gradient
       DO ispin = 1, nspins
          CALL dbcsr_copy(dir(ispin)%matrix, gradient(ispin)%matrix)
          CALL dbcsr_scale(dir(ispin)%matrix, -1.0_dp)
@@ -553,6 +559,7 @@ CONTAINS
          CALL dbcsr_dot(prev_dir(ispin)%matrix, prev_dir(ispin)%matrix,  numer)
          beta(ispin) = denom/numer
       ENDDO
+      DEALLOCATE (gradient)
 
    END SUBROUTINE Polak_Ribiere
 
