@@ -417,7 +417,7 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      CALL get_qs_env(qs_env, rho=rho, ks_env=ks_env)
+      CALL get_qs_env(qs_env, rho=rho, ks_env=ks_env, dft_control=dft_control)
 
       CALL qs_rho_get(rho, rho_ao=rho_ao)
 
