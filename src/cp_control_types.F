@@ -772,6 +772,7 @@ CONTAINS
       NULLIFY (dft_control%sccs_control)
       dft_control%do_sccs = .FALSE.
       dft_control%apply_embed_pot = .FALSE.
+      dft_control%apply_dfet_mat_pot = .FALSE.
       dft_control%apply_dmfet_pot = .FALSE.
       CALL qs_control_create(dft_control%qs_control)
       CALL tddfpt2_control_create(dft_control%tddfpt2_control)
