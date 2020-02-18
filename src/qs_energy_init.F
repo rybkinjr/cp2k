@@ -356,6 +356,7 @@ CONTAINS
          CALL given_embed_pot(qs_env)
       ENDIF
       ! Matrix DFET
+      write(*,*) 'dfet_mat_embedded?', dft_control%qs_control%dfet_mat_embedded
       IF (dft_control%qs_control%dfet_mat_embedded) THEN
          dft_control%apply_dfet_mat_pot = .TRUE.
       ENDIF
