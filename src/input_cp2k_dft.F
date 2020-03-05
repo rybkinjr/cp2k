@@ -5746,6 +5746,34 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="DENS_CONV_MAX", &
+                          description="Convergence criterion for "// &
+                          "the maximum electron density difference.", &
+                          usage="DENS_CONV_MAX 0.01", default_r_val=0.01_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="DENS_CONV_INT", &
+                          description="Convergence criterion for "// &
+                          "the integrated electron density difference.", &
+                          usage="DENS_CONV_INT 0.1", default_r_val=0.1_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="SPIN_DENS_CONV_MAX", &
+                          description="Convergence criterion for "// &
+                          "the maximum electron density difference.", &
+                          usage="DENS_CONV_MAX 0.01", default_r_val=0.01_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="SPIN_DENS_CONV_INT", &
+                          description="Convergence criterion for "// &
+                          "the integrated electron density difference.", &
+                          usage="DENS_CONV_INT 0.1", default_r_val=0.1_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
       NULLIFY (subsection)
       CALL create_hf_ri_section(subsection)
       CALL section_add_subsection(section, subsection)

@@ -626,10 +626,11 @@ CONTAINS
 !!    Adiabatic rescaling  only if do_hfx; right?????
       END IF !do_hfx
 
-      ! Add matrix DFET potential
-      IF (dft_control%apply_dfet_mat_pot) THEN
-         CALL dfet_ks_matrix(qs_env, ks_matrix, energy%e_dfet_mat)
-      Endif
+         ! Add matrix DFET potential
+         IF (dft_control%apply_dfet_mat_pot) THEN
+            CALL dfet_ks_matrix(qs_env, ks_matrix, energy%e_dfet_mat)
+         Endif
+
 
       IF (do_ppl .AND. calculate_forces) THEN
          CPASSERT(.NOT. gapw)
@@ -684,6 +685,11 @@ CONTAINS
                END DO
             END DO
          END IF
+
+         ! Add matrix DFET potential
+         IF (dft_control%apply_dfet_mat_pot) THEN
+            CALL dfet_ks_matrix(qs_env, ks_matrix, energy%e_dfet_mat)
+         Endif
 
          IF (use_virial .AND. calculate_forces) THEN
             pv_loc = virial%pv_virial

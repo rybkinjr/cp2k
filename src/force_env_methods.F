@@ -173,7 +173,8 @@ MODULE force_env_methods
                                               dfet_mat_ks_matrix,&
                                               release_dfet_mat_term,&
                                               add_dfet_mat_to_w_func,&
-                                              dfet_mat_ks_matrix
+                                              dfet_mat_ks_matrix,&
+                                              print_dfet_mat_opt_info
    USE dbcsr_api,                       ONLY: &
         dbcsr_copy, dbcsr_create, dbcsr_init_p, dbcsr_multiply, dbcsr_p_type, dbcsr_release, &
         dbcsr_set, dbcsr_trace, dbcsr_type, dbcsr_type_no_symmetry, dbcsr_add, dbcsr_scale
@@ -2193,9 +2194,7 @@ CONTAINS
       CALL understand_spin_states(force_env, ref_subsys_number, opt_dfet_mat%change_spin, opt_dfet_mat%open_shell_embed, &
                                   opt_dfet_mat%all_nspins)
 
-      ! Prepare for the potential optimization
-      CALL prepare_dfet_mat_opt(force_env%sub_force_env(ref_subsys_number)%force_env%qs_env, &
-                             opt_dfet_mat, opt_dfet_mat_section)
+      write(*,*) 'OPEN SHELL EMBEDDING', opt_dfet_mat%open_shell_embed
 
       ! Get the reference density matrix/matrices
 
@@ -2203,6 +2202,10 @@ CONTAINS
       CALL get_qs_env(force_env%sub_force_env(ref_subsys_number)%force_env%qs_env, rho=rho)
       NULLIFY (opt_dfet_mat%p_total)
       CALL qs_rho_get(rho, rho_ao=opt_dfet_mat%p_total)
+
+      ! Prepare for the potential optimization
+      CALL prepare_dfet_mat_opt(force_env%sub_force_env(ref_subsys_number)%force_env%qs_env, &
+                             opt_dfet_mat, opt_dfet_mat_section)
 
       ! Check the preliminary DM difference
       nspins_total = size(opt_dfet_mat%p_total)
@@ -2283,8 +2286,7 @@ CONTAINS
             dft_control%apply_dfet_mat_pot = .TRUE.
             write(*,*) 'Came here?'
             CALL dfet_mat_ks_matrix(force_env%sub_force_env(i_force_eval)%force_env%qs_env, &
-                                    force_env%sub_force_env(ref_subsys_number)%force_env%qs_env, & 
-                                    opt_dfet_mat, i_force_eval)
+                                    opt_dfet_mat, i_force_eval, i_iter)
             write(*,*) 'Came over here?'
 
             ! Calculate the new density
@@ -2348,10 +2350,11 @@ CONTAINS
          write(*,*) 'W=', opt_dfet_mat%w_func(i_iter), corr
 
          ! Check convergence
-         CALL check_dfet_mat(opt_dfet_mat, force_env%sub_force_env(ref_subsys_number)%force_env%qs_env)
+         CALL print_dfet_mat_opt_info(output_unit, i_iter, opt_dfet_mat)
+         CALL check_dfet_mat(opt_dfet_mat, force_env%sub_force_env(ref_subsys_number)%force_env%qs_env, output_unit)
 
          ! Take the optimization step
-         CALL dfet_mat_opt_step(opt_dfet_mat, force_env%sub_force_env(ref_subsys_number)%force_env%qs_env)
+         CALL dfet_mat_opt_step(opt_dfet_mat, force_env%sub_force_env(ref_subsys_number)%force_env%qs_env, i_iter)
          CALL release_dfet_mat_term(opt_dfet_mat)
 
       ENDDO ! i_iter

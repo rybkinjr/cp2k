@@ -1836,7 +1836,7 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER       :: dfet_mat_term
       TYPE(dft_control_type), POINTER                    :: dft_control
       INTEGER                                            :: ispin, img
-      REAL(kind=dp)                                      :: e_dfet_mat, e_temp, trace
+      REAL(kind=dp)                                      :: e_dfet_mat, e_temp
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho_ao
       TYPE(qs_rho_type), POINTER                         :: rho
 
@@ -1851,18 +1851,7 @@ CONTAINS
       ! Add embedding potential to the Kohn-Sham matrix
       DO img = 1, dft_control%nimages
          DO ispin = 1, dft_control%nspins
-            !
-            CALL dbcsr_trace(dfet_mat_term(1)%matrix, trace)
-            write(*,*) 'embed trace in qs_ks_utils', trace
-            !
-            CALL dbcsr_trace(ks_matrix(ispin,1)%matrix, trace)
-            write(*,*) 'KS trace in qs_ks_utils before', trace
-            !
             CALL dbcsr_add(ks_matrix(ispin,1)%matrix, dfet_mat_term(ispin)%matrix, 1.0_dp, 1.0_dp)
-            !
-            CALL dbcsr_trace(ks_matrix(ispin,1)%matrix, trace)
-            write(*,*) 'KS trace in qs_ks_utils after', trace
-            !
             ! Compute energy correction
             CALL dbcsr_dot(rho_ao(ispin)%matrix, dfet_mat_term(ispin)%matrix, e_temp)
             e_dfet_mat = e_dfet_mat + e_temp
