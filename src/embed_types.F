@@ -99,14 +99,17 @@ MODULE embed_types
 
    END TYPE opt_embed_pot_type
 
+! **************************************************************************************************
+!> \brief Type containing main data for matrix DFET
+!> \author Vladimir Rybkin
+! **************************************************************************************************
 
    TYPE opt_dfet_mat_pot_type
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER :: p_total, p_subsys, v_mat, p_diff, dfet_mat_term
-      REAL(KIND=dp)                             :: trust_rad, conv_max, conv_int, conv_max_beta, &
-                                                   conv_int_beta
+      REAL(KIND=dp)                             :: trust_rad, conv_max, conv_max_spin, conv_int, conv_int_spin
       LOGICAL                                   :: accept_step, converged, read_dfet_mat_pot, &
                                                    change_spin, open_shell_embed
-      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)  :: w_func, max_diff, int_diff
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)  :: w_func, max_dens_diff, int_dens_diff
       INTEGER                                   :: n_iter, i_iter, last_accepted
       INTEGER, ALLOCATABLE, DIMENSION(:)        :: all_nspins
       TYPE(hfx_ri_type)                    :: ri_data

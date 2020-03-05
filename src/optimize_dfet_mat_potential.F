@@ -393,6 +393,8 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:,:), POINTER        :: rho_ao_2d, mat_2d
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: gradient
 
+      write(*,*) 'Came to dfet_mat_opt_step?'
+
       CALL timeset(routineN, handle)
       nspins = 1
       IF (opt_dfet_mat%open_shell_embed) nspins = 2
@@ -544,9 +546,10 @@ CONTAINS
       INTEGER                                            :: ispin, nspins
       REAL(kind=dp)                                      :: denom, numer
 
-      step = opt_dfet_mat%trust_rad
+      opt_step = -opt_dfet_mat%trust_rad
       DO ispin = 1, nspins
-         CALL dbcsr_add(opt_dfet_mat%v_mat(ispin)%matrix, gradient(ispin)%matrix,alpha_scalar=1.0_dp, beta_scalar=step)
+         CALL dbcsr_add(opt_dfet_mat%v_mat(ispin)%matrix, gradient(ispin)%matrix,alpha_scalar=1.0_dp, &
+                        beta_scalar=opt_step)
       ENDDO
 
       ! Deallocate gradient
@@ -1107,6 +1110,91 @@ CONTAINS
          DEALLOCATE (local_max_diff)
          DEALLOCATE (local_int_diff)
       ENDIF
+
+      ! Integrated value criterium
+      ! Open shell
+      IF (opt_dfet_mat%open_shell_embed) THEN
+         IF ((diff_int .LE. opt_dfet_mat%conv_int) .AND. (diff_spin_int .LE. opt_dfet_mat%conv_int_spin)) THEN
+            conv_int_diff = .TRUE.
+         ELSE
+            conv_int_diff = .FALSE.
+         ENDIF
+      ELSE
+         ! Closed shell
+         IF (diff_int .LE. opt_dfet_mat%conv_int) THEN
+            conv_int_diff = .TRUE.
+         ELSE
+            conv_int_diff = .FALSE.
+         ENDIF
+      ENDIF
+
+      ! Both creteria satisfied?
+      IF ((conv_max_diff) .AND. (conv_int_diff)) THEN
+         opt_dfet_mat%converged = .TRUE.
+      ELSE
+         opt_dfet_mat%converged = .FALSE.
+      ENDIF
+
+      ! Print the information
+      IF (output_unit > 0) THEN
+         WRITE (UNIT=output_unit, FMT="(/,T2,A)") &
+            " Convergence check :"
+
+         ! Maximum value of density
+         WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
+            " Maximum density difference                = ", diff_max
+         WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
+            " Convergence limit for max. density diff.  = ", opt_dfet_mat%conv_max
+
+         IF (opt_dfet_mat%open_shell_embed) THEN
+
+            WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
+               " Maximum spin density difference           = ", diff_spin_max
+            WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
+               " Convergence limit for max. spin dens.diff.= ", opt_dfet_mat%conv_max_spin
+
+         ENDIF
+
+         IF (conv_max_diff) THEN
+            WRITE (UNIT=output_unit, FMT="(T2,2A)") &
+               " Convergence in max. density diff.    =     ", &
+               "             YES"
+         ELSE
+            WRITE (UNIT=output_unit, FMT="(T2,2A)") &
+               " Convergence in max. density diff.    =     ", &
+               "              NO"
+         END IF
+
+         ! Integrated abs. value of density
+         WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
+            " Integrated density difference             = ", diff_int
+         WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
+            " Conv. limit for integrated density diff.  = ", opt_dfet_mat%conv_int
+         IF (opt_dfet_mat%open_shell_embed) THEN
+            WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
+               " Integrated spin density difference        = ", diff_spin_int
+            WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
+               " Conv. limit for integrated spin dens.diff.= ", opt_dfet_mat%conv_int_spin
+         ENDIF
+
+         IF (conv_int_diff) THEN
+            WRITE (UNIT=output_unit, FMT="(T2,2A)") &
+               " Convergence in integrated density diff.    =     ", &
+               "             YES"
+         ELSE
+            WRITE (UNIT=output_unit, FMT="(T2,2A)") &
+               " Convergence in integrated density diff.    =     ", &
+               "              NO"
+         END IF
+
+      ENDIF
+
+      IF ((opt_dfet_mat%converged) .AND. (output_unit > 0)) THEN
+         WRITE (UNIT=output_unit, FMT="(/,T2,A)") REPEAT("*", 79)
+         WRITE (UNIT=output_unit, FMT="(T2,A,T25,A,T78,A)") &
+            "***", "EMBEDDING POTENTIAL OPTIMIZATION COMPLETED", "***"
+         WRITE (UNIT=output_unit, FMT="(T2,A)") REPEAT("*", 79)
+      END IF
 
    END SUBROUTINE check_dfet_mat
 
