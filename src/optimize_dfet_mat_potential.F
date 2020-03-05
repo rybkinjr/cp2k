@@ -332,7 +332,7 @@ CONTAINS
       CALL hfx_ri_update_ks(qs_env=qs_env, ri_data=opt_dfet_mat%ri_data, ks_matrix=mat_2d, ehfx=ehfx, &
                             rho_ao=rho_ao_2d, geometry_did_change = geometry_did_change, nspins=nspins, &
                             hf_fraction=hf_fraction)
-
+           write(*,*) 'computed overlaps?'
       opt_step = -opt_dfet_mat%trust_rad
       DO ispin = 1, nspins
          CALL dbcsr_add(opt_dfet_mat%v_mat(ispin)%matrix, gradient(ispin)%matrix,alpha_scalar=1.0_dp, &
@@ -387,17 +387,15 @@ CONTAINS
 
       NULLIFY (opt_dfet_mat%dfet_mat_term)
       CALL dbcsr_allocate_matrix_set(opt_dfet_mat%dfet_mat_term, nspins)
-      NULLIFY(term_local)
-      CALL dbcsr_allocate_matrix_set(term_local, nspins)
       DO ispin = 1, nspins
          ALLOCATE (opt_dfet_mat%dfet_mat_term(ispin)%matrix)
          CALL dbcsr_init_p(opt_dfet_mat%dfet_mat_term(ispin)%matrix)
          CALL dbcsr_create(opt_dfet_mat%dfet_mat_term(ispin)%matrix, template=opt_dfet_mat%v_mat(1)%matrix)
          CALL dbcsr_set(opt_dfet_mat%dfet_mat_term(ispin)%matrix, 0.0_dp)
-         ALLOCATE (term_local(ispin)%matrix)
-         CALL dbcsr_init_p(term_local(ispin)%matrix)
-         CALL dbcsr_create(term_local(ispin)%matrix, template=opt_dfet_mat%v_mat(1)%matrix)
-         CALL dbcsr_set(term_local(ispin)%matrix, 0.0_dp)
+         !ALLOCATE (term_local(ispin)%matrix)
+         !CALL dbcsr_init_p(term_local(ispin)%matrix)
+         !CALL dbcsr_create(term_local(ispin)%matrix, template=opt_dfet_mat%v_mat(1)%matrix)
+         !CALL dbcsr_set(term_local(ispin)%matrix, 0.0_dp)
       ENDDO
 
       !
@@ -405,6 +403,8 @@ CONTAINS
       !
       If (.NOT. zero_pot) then
 
+          NULLIFY(term_local)
+          CALL dbcsr_allocate_matrix_set(term_local, nspins)
           DO ispin = 1, nspins
              ALLOCATE (term_local(ispin)%matrix)
              CALL dbcsr_init_p(term_local(ispin)%matrix)
@@ -423,7 +423,6 @@ CONTAINS
                                 rho_ao=rho_ao_2d, geometry_did_change = geometry_did_change, nspins=nspins, &
                                 hf_fraction=hf_fraction)
 
-           write(*,*) 'computed overlaps?'
  
           DO ispin = 1, nspins
  
