@@ -82,6 +82,7 @@ MODULE optimize_dfet_mat_potential
                                               pw_release,&
                                               pw_type
    USE optimize_embedding_potential,     ONLY: max_dens_diff
+   USE atomic_kind_types,                ONLY: atomic_kind_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -135,12 +136,13 @@ CONTAINS
 
 
    SUBROUTINE overlap_ri_init(ri_data, ri_section, qs_kind_set, &
-                            particle_set, dft_control, para_env, nelectron_total)
+                            particle_set, atomic_kind_set, dft_control, para_env, nelectron_total)
       TYPE(hfx_ri_type), INTENT(INOUT)                   :: ri_data
       !TYPE(hfx_type)                       :: x_data
       TYPE(section_vals_type), POINTER                   :: ri_section
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
+      TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(cp_para_env_type)                             :: para_env
       INTEGER, INTENT(IN)                                :: nelectron_total
@@ -178,7 +180,7 @@ CONTAINS
       orb_basis_type = "ORB"
       ri_basis_type = "RI_HFX"
 
-      CALL hfx_ri_init_read_input(ri_data, ri_section, qs_kind_set, particle_set, &
+      CALL hfx_ri_init_read_input(ri_data, ri_section, qs_kind_set, particle_set, atomic_kind_set, &
                                   orb_basis_type, ri_basis_type, dft_control%auto_basis_ri_hfx, &
                                   para_env, unit_nr, unit_nr_dbcsr, nelectron_total)
 
@@ -210,15 +212,16 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                             :: para_env
       INTEGER                                   :: nelectron_total
       TYPE(section_vals_type), POINTER                   :: ri_section
+      TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
 
       ! Read the input
       CALL read_opt_dfet_mat_section(opt_dfet_mat, opt_dfet_mat_section, ri_section)
 
       ! Prepare the ri ovelap calculations
-      CALL get_qs_env(qs_env, qs_kind_set=qs_kind_set, particle_set=particle_set, dft_control=dft_control,&
-                      para_env=para_env, nelectron_total=nelectron_total)
+      CALL get_qs_env(qs_env, qs_kind_set=qs_kind_set, particle_set=particle_set, atomic_kind_set=atomic_kind_set, &
+                      dft_control=dft_control, para_env=para_env, nelectron_total=nelectron_total)
       CALL  overlap_ri_init(opt_dfet_mat%ri_data, ri_section, qs_kind_set, &
-                            particle_set, dft_control, para_env, nelectron_total)
+                            particle_set, atomic_kind_set, dft_control, para_env, nelectron_total)
 
       nspins = 1
       IF (opt_dfet_mat%open_shell_embed) THEN
