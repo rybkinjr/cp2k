@@ -132,7 +132,7 @@ MODULE qs_ks_methods
    USE qs_ks_utils,                     ONLY: &
         calc_v_sic_rspace, calculate_zmp_potential, compute_matrix_vxc, dfet_ks_matrix, &
         get_embed_potential_energy, low_spin_roks, print_densities, print_detailed_energy, &
-        sic_explicit_orbitals, sum_up_and_integrate, dfet_ks_matrix
+        sic_explicit_orbitals, sum_up_and_integrate
    USE qs_local_rho_types,              ONLY: local_rho_type
    USE qs_mo_types,                     ONLY: get_mo_set,&
                                               mo_set_p_type,&

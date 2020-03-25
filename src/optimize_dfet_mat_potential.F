@@ -393,8 +393,6 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:,:), POINTER        :: rho_ao_2d, mat_2d
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: gradient
 
-      write(*,*) 'Came to dfet_mat_opt_step?'
-
       CALL timeset(routineN, handle)
       nspins = 1
       IF (opt_dfet_mat%open_shell_embed) nspins = 2
@@ -548,11 +546,24 @@ CONTAINS
 
       opt_step = -opt_dfet_mat%trust_rad
       DO ispin = 1, nspins
-         CALL dbcsr_add(opt_dfet_mat%v_mat(ispin)%matrix, gradient(ispin)%matrix,alpha_scalar=1.0_dp, &
-                        beta_scalar=opt_step)
+         CALL dbcsr_copy(opt_dfet_mat%v_mat(ispin)%matrix, opt_dfet_mat%prev_v_mat(ispin)%matrix)
+         CALL dbcsr_add(opt_dfet_mat%v_mat(ispin)%matrix, opt_dfet_mat%prev_grad(ispin)%matrix, &
+                          alpha_scalar=1.0_dp, beta_scalar=opt_step)
+         ! Save direction and step
+         CALL dbcsr_copy(opt_dfet_mat%prev_dir(ispin)%matrix, opt_dfet_mat%prev_grad(ispin)%matrix)
+         CALL dbcsr_scale(opt_dfet_mat%prev_dir(ispin)%matrix, -1.0_dp)
+         CALL dbcsr_copy(opt_dfet_mat%prev_step(ispin)%matrix, opt_dfet_mat%prev_dir(ispin)%matrix)
+         CALL dbcsr_scale(opt_dfet_mat%prev_step(ispin)%matrix, opt_step)
       ENDDO
 
-      ! Deallocate gradient
+   END SUBROUTINE cg_backtrack
+
+   SUBROUTINE Polak_Ribiere(gradient, prev_dir, dir, beta, nspins)
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: gradient, prev_dir, dir
+      REAL(KIND=dp), DIMENSION(:),ALLOCATABLE            :: beta
+      INTEGER                                            :: ispin, nspins
+      REAL(kind=dp)                                      :: denom, numer
+
       DO ispin = 1, nspins
          CALL dbcsr_copy(dir(ispin)%matrix, gradient(ispin)%matrix)
          CALL dbcsr_scale(dir(ispin)%matrix, -1.0_dp)
@@ -562,7 +573,6 @@ CONTAINS
          CALL dbcsr_dot(prev_dir(ispin)%matrix, prev_dir(ispin)%matrix,  numer)
          beta(ispin) = denom/numer
       ENDDO
-      DEALLOCATE (gradient)
 
    END SUBROUTINE Polak_Ribiere
 
@@ -1111,21 +1121,11 @@ CONTAINS
          DEALLOCATE (local_int_diff)
       ENDIF
 
-      ! Integrated value criterium
-      ! Open shell
-      IF (opt_dfet_mat%open_shell_embed) THEN
-         IF ((diff_int .LE. opt_dfet_mat%conv_int) .AND. (diff_spin_int .LE. opt_dfet_mat%conv_int_spin)) THEN
-            conv_int_diff = .TRUE.
-         ELSE
-            conv_int_diff = .FALSE.
-         ENDIF
+      ! Frobenius value criterium
+      IF (diff_int .LE. opt_dfet_mat%conv_int) THEN
+         conv_int_diff = .TRUE.
       ELSE
-         ! Closed shell
-         IF (diff_int .LE. opt_dfet_mat%conv_int) THEN
-            conv_int_diff = .TRUE.
-         ELSE
-            conv_int_diff = .FALSE.
-         ENDIF
+         conv_int_diff = .FALSE.
       ENDIF
 
       ! Both creteria satisfied?
@@ -1142,52 +1142,60 @@ CONTAINS
 
          ! Maximum value of density
          WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
-            " Maximum density difference                = ", diff_max
+            " Maximum gradient element            = ", diff_max
          WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
-            " Convergence limit for max. density diff.  = ", opt_dfet_mat%conv_max
-
-         IF (opt_dfet_mat%open_shell_embed) THEN
-
-            WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
-               " Maximum spin density difference           = ", diff_spin_max
-            WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
-               " Convergence limit for max. spin dens.diff.= ", opt_dfet_mat%conv_max_spin
-
-         ENDIF
+            " Convergence limit for max. gradient = ", opt_dfet_mat%conv_max
 
          IF (conv_max_diff) THEN
             WRITE (UNIT=output_unit, FMT="(T2,2A)") &
-               " Convergence in max. density diff.    =     ", &
+               " Convergence in max. gradient =     ", &
                "             YES"
          ELSE
             WRITE (UNIT=output_unit, FMT="(T2,2A)") &
-               " Convergence in max. density diff.    =     ", &
+               " Convergence in max. gradient =     ", &
                "              NO"
          END IF
 
-         ! Integrated abs. value of density
+         ! Frobenius abs. value of density
          WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
-            " Integrated density difference             = ", diff_int
+            " Frobenius norm of gradient difference      = ", diff_int
          WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
-            " Conv. limit for integrated density diff.  = ", opt_dfet_mat%conv_int
-         IF (opt_dfet_mat%open_shell_embed) THEN
-            WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
-               " Integrated spin density difference        = ", diff_spin_int
-            WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
-               " Conv. limit for integrated spin dens.diff.= ", opt_dfet_mat%conv_int_spin
-         ENDIF
+            " Conv. limit for Frobenius norm of gradient = ", opt_dfet_mat%conv_int
 
          IF (conv_int_diff) THEN
             WRITE (UNIT=output_unit, FMT="(T2,2A)") &
-               " Convergence in integrated density diff.    =     ", &
+               " Convergence in Frobenius norm of gradient =     ", &
                "             YES"
          ELSE
             WRITE (UNIT=output_unit, FMT="(T2,2A)") &
-               " Convergence in integrated density diff.    =     ", &
+               " Convergence in Frobenius norm of gradient =     ", &
                "              NO"
          END IF
 
-      ENDIF
+         ! Additional information for GPW case
+         If (.NOT. dft_control%qs_control%gapw) then
+            ! Maximum value of density
+            WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
+               " Maximum density difference                = ", local_max_diff(1)
+ 
+            IF (opt_dfet_mat%open_shell_embed) THEN
+ 
+               WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
+                  " Maximum density difference, beta spin      = ", local_max_diff(2)
+ 
+            ENDIF
+ 
+            ! Integrated abs. value of density
+            WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
+               " Integrated density difference             = ", local_int_diff(1)
+            IF (opt_dfet_mat%open_shell_embed) THEN
+               WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
+                  " Integrated density difference, beta spin   = ", local_int_diff(2)
+            ENDIF
+ 
+         ENDIF ! GAPW
+
+      ENDIF ! Unit
 
       IF ((opt_dfet_mat%converged) .AND. (output_unit > 0)) THEN
          WRITE (UNIT=output_unit, FMT="(/,T2,A)") REPEAT("*", 79)
@@ -1195,6 +1203,11 @@ CONTAINS
             "***", "EMBEDDING POTENTIAL OPTIMIZATION COMPLETED", "***"
          WRITE (UNIT=output_unit, FMT="(T2,A)") REPEAT("*", 79)
       END IF
+
+      If (.NOT. dft_control%qs_control%gapw) then
+         DEALLOCATE (local_max_diff)
+         DEALLOCATE (local_int_diff)
+      ENDIF
 
    END SUBROUTINE check_dfet_mat
 

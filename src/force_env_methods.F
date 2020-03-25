@@ -70,8 +70,7 @@ MODULE force_env_methods
                                               embed_env_type,&
                                               opt_dfet_mat_pot_type,&
                                               opt_dmfet_pot_type,&
-                                              opt_embed_pot_type,&
-                                              opt_dfet_mat_pot_type
+                                              opt_embed_pot_type
    USE external_potential_methods,      ONLY: add_external_potential
    USE fist_environment_types,          ONLY: fist_env_retain,&
                                               fist_environment_type
@@ -2194,7 +2193,6 @@ CONTAINS
       TYPE(force_env_type), POINTER                      :: force_env
       INTEGER                                            :: ref_subsys_number
       REAL(KIND=dp), DIMENSION(:), POINTER               :: energies
-      REAL(KIND=dp)                                      :: scale_factor
       LOGICAL                                            :: converged_embed
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'dfet_matrix_embedding', &
