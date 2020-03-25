@@ -1146,6 +1146,9 @@ MODULE input_constants
                                                embed_diff = 1, &
                                                embed_fa = 2, &
                                                embed_resp = 3
+   ! Matrix DFET: optimization of potential
+   INTEGER, PARAMETER, PUBLIC               :: dfet_mat_steep_desc = 0, &
+                                               dfet_mat_conj_grad = 1
 
    ! MOLDEN format
    INTEGER, PARAMETER, PUBLIC               :: gto_cartesian = 1, &

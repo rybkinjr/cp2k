@@ -56,15 +56,21 @@ MODULE force_env_methods
                                               cp_subsys_p_type,&
                                               cp_subsys_set,&
                                               cp_subsys_type
+   USE dbcsr_api,                       ONLY: dbcsr_add,&
+                                              dbcsr_copy,&
+                                              dbcsr_scale,&
+                                              dbcsr_trace,&
+                                              dbcsr_release_p,&
+                                              dbcsr_p_type
    USE eip_environment_types,           ONLY: eip_env_retain,&
                                               eip_environment_type
    USE eip_silicon,                     ONLY: eip_bazant,&
                                               eip_lenosky
    USE embed_types,                     ONLY: embed_env_retain,&
                                               embed_env_type,&
+                                              opt_dfet_mat_pot_type,&
                                               opt_dmfet_pot_type,&
-                                              opt_embed_pot_type,&
-                                              opt_dfet_mat_pot_type
+                                              opt_embed_pot_type
    USE external_potential_methods,      ONLY: add_external_potential
    USE fist_environment_types,          ONLY: fist_env_retain,&
                                               fist_environment_type
@@ -88,8 +94,9 @@ MODULE force_env_methods
                                               globenv_retain
    USE grrm_utils,                      ONLY: write_grrm
    USE input_constants,                 ONLY: &
-        debug_run, dfet, dmfet, dfet_mat, mix_cdft, mix_coupled, mix_generic, mix_linear_combination, &
-        mix_minimum, mix_restrained, mixed_cdft_serial, use_bazant_eip, use_lenosky_eip
+        debug_run, dfet, dfet_mat, dmfet, mix_cdft, mix_coupled, mix_generic, &
+        mix_linear_combination, mix_minimum, mix_restrained, mixed_cdft_serial, use_bazant_eip, &
+        use_lenosky_eip
    USE input_section_types,             ONLY: section_vals_get_subs_vals,&
                                               section_vals_retain,&
                                               section_vals_type,&
@@ -117,6 +124,14 @@ MODULE force_env_methods
    USE molecule_kind_list_types,        ONLY: molecule_kind_list_type
    USE molecule_kind_types,             ONLY: get_molecule_kind,&
                                               molecule_kind_type
+   USE optimize_dfet_mat_potential,     ONLY: check_dfet_mat,&
+                                              dfet_mat_ks_matrix,&
+                                              dfet_mat_opt_step,&
+                                              prepare_dfet_mat_opt,&
+                                              print_dfet_mat_opt_info,&
+                                              release_dfet_mat_opt,&
+                                              release_dfet_mat_term,&
+                                              print_dfet_mat_restart
    USE optimize_dmfet_potential,        ONLY: build_full_dm,&
                                               check_dmfet,&
                                               prepare_dmfet_opt,&
@@ -172,18 +187,8 @@ MODULE force_env_methods
                                               virial_release,&
                                               virial_type,&
                                               zero_virial
-   USE optimize_dfet_mat_potential,     ONLY: prepare_dfet_mat_opt,&
-                                              release_dfet_mat_opt,&
-                                              check_dfet_mat,&
-                                              dfet_mat_opt_step,&
-                                              dfet_mat_ks_matrix,&
-                                              release_dfet_mat_term,&
-                                              add_dfet_mat_to_w_func,&
-                                              dfet_mat_ks_matrix,&
-                                              print_dfet_mat_opt_info
-   USE dbcsr_api,                       ONLY: &
-        dbcsr_copy, dbcsr_create, dbcsr_init_p, dbcsr_multiply, dbcsr_p_type, dbcsr_release, &
-        dbcsr_set, dbcsr_trace, dbcsr_type, dbcsr_type_no_symmetry, dbcsr_add, dbcsr_scale
+   USE qs_ks_types,                     ONLY: get_ks_env,&
+                                              qs_ks_env_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -1398,7 +1403,8 @@ CONTAINS
       TYPE(force_env_type), POINTER                      :: force_env
 
       INTEGER                                            :: iforce_eval, iparticle, jparticle, &
-                                                            my_group, natom, nforce_eval
+                                                            my_group, natom, nforce_eval, nspins, &
+                                                            ispin
       INTEGER, DIMENSION(:), POINTER                     :: glob_natoms, map_index
       LOGICAL                                            :: converged_embed
       REAL(KIND=dp)                                      :: energy
@@ -1417,6 +1423,9 @@ CONTAINS
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
       TYPE(section_vals_type), POINTER                   :: embed_section, force_env_section, &
                                                             mapping_section, root_section
+      LOGICAL                                            :: dfet, dfet_mat, dmfet
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: dfet_mat_term
+      TYPE(qs_ks_env_type), POINTER                      :: ks_env
 
       logger => cp_get_default_logger()
       CPASSERT(ASSOCIATED(force_env))
@@ -1500,22 +1509,34 @@ CONTAINS
             CALL get_qs_env(force_env%sub_force_env(iforce_eval)%force_env%qs_env, dft_control=dft_control)
             IF (dft_control%qs_control%ref_embed_subsys) THEN
                ! Now we can optimize the embedding potential
-               CALL dft_embedding(force_env, iforce_eval, energies, converged_embed)
+               CALL dft_embedding(force_env, iforce_eval, energies, converged_embed, dfet, dfet_mat, dmfet)
                IF (.NOT. converged_embed) CPABORT("Embedding potential optimization not converged.")
             ENDIF
             ! Deallocate embedding potential on the high-level subsystem
             IF (dft_control%qs_control%high_level_embed_subsys) THEN
-               CALL get_qs_env(qs_env=force_env%sub_force_env(iforce_eval)%force_env%qs_env, &
-                               embed_pot=embed_pot, spin_embed_pot=spin_embed_pot, pw_env=pw_env)
-               CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
-               CALL pw_pool_give_back_pw(auxbas_pw_pool, embed_pot%pw)
-               CALL pw_release(embed_pot%pw)
-               DEALLOCATE (embed_pot)
-               IF (ASSOCIATED(spin_embed_pot)) THEN
-                  CALL pw_pool_give_back_pw(auxbas_pw_pool, spin_embed_pot%pw)
-                  CALL pw_release(spin_embed_pot%pw)
-                  DEALLOCATE (spin_embed_pot)
-               ENDIF
+               If (dfet) then ! Potential on the grid
+                  CALL get_qs_env(qs_env=force_env%sub_force_env(iforce_eval)%force_env%qs_env, &
+                                  embed_pot=embed_pot, spin_embed_pot=spin_embed_pot, pw_env=pw_env)
+                  CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
+                  CALL pw_pool_give_back_pw(auxbas_pw_pool, embed_pot%pw)
+                  CALL pw_release(embed_pot%pw)
+                  DEALLOCATE (embed_pot)
+                  IF (ASSOCIATED(spin_embed_pot)) THEN
+                     CALL pw_pool_give_back_pw(auxbas_pw_pool, spin_embed_pot%pw)
+                     CALL pw_release(spin_embed_pot%pw)
+                     DEALLOCATE (spin_embed_pot)
+                  ENDIF
+               ENDIF ! Potential on the grid
+               If (dfet_mat) then ! Matrix potential
+                  CALL get_qs_env(qs_env=force_env%sub_force_env(iforce_eval)%force_env%qs_env,&
+                                  ks_env=ks_env)
+                  CALL get_ks_env(ks_env=ks_env, dfet_mat_term=dfet_mat_term)
+                  nspins = size(dfet_mat_term)
+                  DO ispin=1, nspins
+                     CALL dbcsr_release_p(dfet_mat_term(ispin)%matrix)
+                  ENDDO
+                  DEALLOCATE (dfet_mat_term)
+               Endif ! Matrix potential
             ENDIF
          ENDIF
 
@@ -1571,7 +1592,8 @@ CONTAINS
 !> \param energies ...
 !> \param converged_embed ...
 ! **************************************************************************************************
-   SUBROUTINE dft_embedding(force_env, ref_subsys_number, energies, converged_embed)
+   SUBROUTINE dft_embedding(force_env, ref_subsys_number, energies, converged_embed,&
+                                                      do_dfet, do_dfet_mat, do_dmfet)
       TYPE(force_env_type), POINTER                      :: force_env
       INTEGER                                            :: ref_subsys_number
       REAL(KIND=dp), DIMENSION(:), POINTER               :: energies
@@ -1579,6 +1601,11 @@ CONTAINS
 
       INTEGER                                            :: embed_method
       TYPE(section_vals_type), POINTER                   :: embed_section, force_env_section
+      LOGICAL                                            :: do_dfet, do_dfet_mat, do_dmfet
+    
+      do_dfet = .FALSE.
+      do_dfet_mat = .FALSE.
+      do_dmfet = .FALSE.
 
       ! Find out which embedding scheme is used
       CALL force_env_get(force_env=force_env, &
@@ -1589,11 +1616,14 @@ CONTAINS
       SELECT CASE (embed_method)
       CASE (dfet)
          ! Density functional embedding
+         do_dfet = .TRUE.
          CALL dfet_embedding(force_env, ref_subsys_number, energies, converged_embed)
       CASE (dfet_mat)
          ! Density functional embedding in matrix form
+         do_dfet_mat = .TRUE.
          CALL dfet_matrix_embedding(force_env, ref_subsys_number, energies, converged_embed)
       CASE (dmfet)
+         do_dmfet = .TRUE.
          ! Density matrix embedding theory
          CALL dmfet_embedding(force_env, ref_subsys_number, energies, converged_embed)
       END SELECT
@@ -2058,9 +2088,6 @@ CONTAINS
       ! Get the reference density matrix/matrices
       subsys_open_shell = subsys_spin(force_env%sub_force_env(ref_subsys_number)%force_env%qs_env)
 
-
-
-
       ! Check the preliminary DM difference
       CALL cp_fm_copy_general(opt_dmfet%dm_total, opt_dmfet%dm_diff, para_env)
       IF (opt_dmfet%open_shell_embed) CALL cp_fm_copy_general(opt_dmfet%dm_total_beta, &
@@ -2155,40 +2182,33 @@ CONTAINS
 
    END SUBROUTINE dmfet_embedding
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+! **************************************************************************************************
+!> \brief ...
+!> \param force_env ...
+!> \param ref_subsys_number ...
+!> \param energies ...
+!> \param converged_embed ...
+! **************************************************************************************************
    SUBROUTINE dfet_matrix_embedding(force_env, ref_subsys_number, energies, converged_embed)
       TYPE(force_env_type), POINTER                      :: force_env
       INTEGER                                            :: ref_subsys_number
       REAL(KIND=dp), DIMENSION(:), POINTER               :: energies
-      REAL(KIND=dp)                                      :: scale_factor
       LOGICAL                                            :: converged_embed
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'dfet_matrix_embedding', &
          routineP = moduleN//':'//routineN
 
       INTEGER                                            :: cluster_subsys_num, handle, &
-                                                            i_force_eval, i_iter, output_unit
-      REAL(KIND=dp)                                      :: cluster_energy, corr, trace
+                                                            i_force_eval, i_iter, nspins_subsys, &
+                                                            nspins_total, output_unit
+      REAL(KIND=dp)                                      :: cluster_energy, scale_factor, trace
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(opt_dfet_mat_pot_type)                        :: opt_dfet_mat
       TYPE(qs_energy_type), POINTER                      :: energy
-      TYPE(section_vals_type), POINTER                   :: dft_section, input, opt_dfet_mat_section
       TYPE(qs_rho_type), POINTER                         :: rho
-      INTEGER                                            :: nspins_subsys, nspins_total
+      TYPE(section_vals_type), POINTER                   :: dft_section, input, opt_dfet_mat_section
 
       CALL timeset(routineN, handle)
 
@@ -2209,13 +2229,13 @@ CONTAINS
 
       dft_section => section_vals_get_subs_vals(input, "DFT")
       opt_dfet_mat_section => section_vals_get_subs_vals(input, &
-                                                      "DFT%QS%OPT_DFET_MAT")
+                                                         "DFT%QS%OPT_DFET_MAT")
 
       ! We need to understand how to treat spins states
       CALL understand_spin_states(force_env, ref_subsys_number, opt_dfet_mat%change_spin, opt_dfet_mat%open_shell_embed, &
                                   opt_dfet_mat%all_nspins)
 
-      write(*,*) 'OPEN SHELL EMBEDDING', opt_dfet_mat%open_shell_embed
+      WRITE (*, *) 'OPEN SHELL EMBEDDING', opt_dfet_mat%open_shell_embed
 
       ! Get the reference density matrix/matrices
 
@@ -2226,23 +2246,23 @@ CONTAINS
 
       ! Prepare for the potential optimization
       CALL prepare_dfet_mat_opt(force_env%sub_force_env(ref_subsys_number)%force_env%qs_env, &
-                             opt_dfet_mat, opt_dfet_mat_section)
+                                opt_dfet_mat, opt_dfet_mat_section, output_unit)
 
       ! Check the preliminary DM difference
-      nspins_total = size(opt_dfet_mat%p_total)
+      nspins_total = SIZE(opt_dfet_mat%p_total)
       CALL dbcsr_copy(opt_dfet_mat%p_diff(1)%matrix, opt_dfet_mat%p_total(1)%matrix)
-      IF (opt_dfet_mat%open_shell_embed) then
-         If (nspins_total .EQ. 2) then
+      IF (opt_dfet_mat%open_shell_embed) THEN
+         IF (nspins_total .EQ. 2) THEN
             CALL dbcsr_copy(opt_dfet_mat%p_diff(2)%matrix, opt_dfet_mat%p_total(2)%matrix)
-         Else ! Embedding is open-shell but reference systems is closed-shell
+         ELSE ! Embedding is open-shell but reference systems is closed-shell
             CALL dbcsr_copy(opt_dfet_mat%p_diff(2)%matrix, opt_dfet_mat%p_total(1)%matrix)
             scale_factor = 0.5_dp
             CALL dbcsr_scale(opt_dfet_mat%p_diff(1)%matrix, scale_factor)
             CALL dbcsr_scale(opt_dfet_mat%p_diff(2)%matrix, scale_factor)
          ENDIF
-      Endif
+      ENDIF
 
-      DO i_force_eval = 1, ref_subsys_number-1
+      DO i_force_eval = 1, ref_subsys_number - 1
 
          ! Get the subsystem density matrix/matrices
          NULLIFY (rho)
@@ -2250,22 +2270,22 @@ CONTAINS
          NULLIFY (opt_dfet_mat%p_subsys)
          CALL qs_rho_get(rho, rho_ao=opt_dfet_mat%p_subsys)
 
-         nspins_subsys = size(opt_dfet_mat%p_subsys)
+         nspins_subsys = SIZE(opt_dfet_mat%p_subsys)
 
          IF (opt_dfet_mat%open_shell_embed) THEN ! Spin part
             IF (nspins_subsys .EQ. 2) THEN ! The subsystem makes contribution if it is spin-polarized
                ! We may need to change spin ONLY FOR THE SECOND SUBSYSTEM: that's the internal convention
                IF ((i_force_eval .EQ. 2) .AND. (opt_dfet_mat%change_spin)) THEN
-                  CALL dbcsr_add(opt_dfet_mat%p_diff(2)%matrix, opt_dfet_mat%p_subsys(1)%matrix,&
-                       alpha_scalar=1.0_dp, beta_scalar=-1.0_dp)
-                  CALL dbcsr_add(opt_dfet_mat%p_diff(1)%matrix, opt_dfet_mat%p_subsys(2)%matrix,&
-                       alpha_scalar=1.0_dp, beta_scalar=-1.0_dp)
+                  CALL dbcsr_add(opt_dfet_mat%p_diff(2)%matrix, opt_dfet_mat%p_subsys(1)%matrix, &
+                                 alpha_scalar=1.0_dp, beta_scalar=-1.0_dp)
+                  CALL dbcsr_add(opt_dfet_mat%p_diff(1)%matrix, opt_dfet_mat%p_subsys(2)%matrix, &
+                                 alpha_scalar=1.0_dp, beta_scalar=-1.0_dp)
                ELSE
                   ! First subsystem (always) and second subsystem (without spin change)
-                  CALL dbcsr_add(opt_dfet_mat%p_diff(1)%matrix, opt_dfet_mat%p_subsys(1)%matrix,&
-                       alpha_scalar=1.0_dp, beta_scalar=-1.0_dp)
-                  CALL dbcsr_add(opt_dfet_mat%p_diff(2)%matrix, opt_dfet_mat%p_subsys(2)%matrix,&
-                        alpha_scalar=1.0_dp, beta_scalar=-1.0_dp)
+                  CALL dbcsr_add(opt_dfet_mat%p_diff(1)%matrix, opt_dfet_mat%p_subsys(1)%matrix, &
+                                 alpha_scalar=1.0_dp, beta_scalar=-1.0_dp)
+                  CALL dbcsr_add(opt_dfet_mat%p_diff(2)%matrix, opt_dfet_mat%p_subsys(2)%matrix, &
+                                 alpha_scalar=1.0_dp, beta_scalar=-1.0_dp)
                ENDIF
             ELSE  ! Embedding is open-shell, but subsystem is closed-shell
                CALL dbcsr_add(opt_dfet_mat%p_diff(1)%matrix, opt_dfet_mat%p_subsys(1)%matrix, &
@@ -2286,41 +2306,43 @@ CONTAINS
 
          ! Set the dm difference as the reference one
          CALL dbcsr_copy(opt_dfet_mat%p_diff(1)%matrix, opt_dfet_mat%p_total(1)%matrix)
-         IF (opt_dfet_mat%open_shell_embed) then
-            If (nspins_total .EQ. 2) then
+         IF (opt_dfet_mat%open_shell_embed) THEN
+            IF (nspins_total .EQ. 2) THEN
                CALL dbcsr_copy(opt_dfet_mat%p_diff(2)%matrix, opt_dfet_mat%p_total(2)%matrix)
-            Else ! Embedding is open-shell but reference systems is closed-shell
+            ELSE ! Embedding is open-shell but reference systems is closed-shell
                CALL dbcsr_copy(opt_dfet_mat%p_diff(2)%matrix, opt_dfet_mat%p_total(1)%matrix)
                scale_factor = 0.5_dp
                CALL dbcsr_scale(opt_dfet_mat%p_diff(1)%matrix, scale_factor)
                CALL dbcsr_scale(opt_dfet_mat%p_diff(2)%matrix, scale_factor)
             ENDIF
-         Endif
+         ENDIF
 
          ! Loop over force evaluations
-         DO i_force_eval = 1, ref_subsys_number-1
-            write(*,*) 'force_eval = ', i_force_eval
+         DO i_force_eval = 1, ref_subsys_number - 1
+            WRITE (*, *) 'force_eval = ', i_force_eval
 
             ! Switch on external potential in the subsystems
             NULLIFY (dft_control)
             CALL get_qs_env(force_env%sub_force_env(i_force_eval)%force_env%qs_env, dft_control=dft_control)
             dft_control%apply_dfet_mat_pot = .TRUE.
-            write(*,*) 'Came here?'
-            CALL dfet_mat_ks_matrix(force_env%sub_force_env(i_force_eval)%force_env%qs_env, &
+            WRITE (*, *) 'Came here?'
+            CALL dfet_mat_ks_matrix(force_env%sub_force_env(ref_subsys_number)%force_env%qs_env, &
+                                    force_env%sub_force_env(i_force_eval)%force_env%qs_env, &
                                     opt_dfet_mat, i_force_eval, i_iter)
-            write(*,*) 'Came over here?'
+            WRITE (*, *) 'Came over here?'
 
             ! Calculate the new density
             CALL force_env_calc_energy_force(force_env=force_env%sub_force_env(i_force_eval)%force_env, &
                                              calc_force=.FALSE., &
                                              skip_external_control=.TRUE.)
-            write(*,*) 'Calculated the energy?'
+            WRITE (*, *) 'Calculated the energy?'
+            CALL release_dfet_mat_term(opt_dfet_mat)
 
             ! Extract subsystem density matrix and energy
             NULLIFY (energy)
             NULLIFY (rho)
             CALL get_qs_env(force_env%sub_force_env(i_force_eval)%force_env%qs_env, rho=rho, energy=energy)
-            opt_dfet_mat%w_func(i_iter) = opt_dfet_mat%w_func(i_iter)+energy%total
+            opt_dfet_mat%w_func(i_iter) = opt_dfet_mat%w_func(i_iter) + energy%total
 
             ! Find out which subsystem is the cluster
             IF (dft_control%qs_control%cluster_embed_subsys) THEN
@@ -2331,25 +2353,25 @@ CONTAINS
             ! Add subsystem density matrices
             NULLIFY (opt_dfet_mat%p_subsys)
             CALL qs_rho_get(rho, rho_ao=opt_dfet_mat%p_subsys)
-        
-            nspins_subsys = size(opt_dfet_mat%p_subsys)
+
+            nspins_subsys = SIZE(opt_dfet_mat%p_subsys)
             CALL dbcsr_trace(opt_dfet_mat%p_subsys(1)%matrix, trace)
-            write(*,*) 'trace one', trace
-     
+            WRITE (*, *) 'trace one', trace
+
             IF (opt_dfet_mat%open_shell_embed) THEN ! Spin part
                IF (nspins_subsys .EQ. 2) THEN ! The subsystem makes contribution if it is spin-polarized
                   ! We may need to change spin ONLY FOR THE SECOND SUBSYSTEM: that's the internal convention
                   IF ((i_force_eval .EQ. 2) .AND. (opt_dfet_mat%change_spin)) THEN
                      CALL dbcsr_add(opt_dfet_mat%p_diff(2)%matrix, opt_dfet_mat%p_subsys(1)%matrix, &
-                          alpha_scalar=1.0_dp, beta_scalar=-1.0_dp)
+                                    alpha_scalar=1.0_dp, beta_scalar=-1.0_dp)
                      CALL dbcsr_add(opt_dfet_mat%p_diff(1)%matrix, opt_dfet_mat%p_subsys(2)%matrix, &
-                          alpha_scalar=1.0_dp, beta_scalar=-1.0_dp)
+                                    alpha_scalar=1.0_dp, beta_scalar=-1.0_dp)
                   ELSE
                      ! First subsystem (always) and second subsystem (without spin change)
                      CALL dbcsr_add(opt_dfet_mat%p_diff(1)%matrix, opt_dfet_mat%p_subsys(1)%matrix, &
-                          alpha_scalar=1.0_dp, beta_scalar=-1.0_dp)
+                                    alpha_scalar=1.0_dp, beta_scalar=-1.0_dp)
                      CALL dbcsr_add(opt_dfet_mat%p_diff(2)%matrix, opt_dfet_mat%p_subsys(2)%matrix, &
-                          alpha_scalar=1.0_dp, beta_scalar=-1.0_dp)
+                                    alpha_scalar=1.0_dp, beta_scalar=-1.0_dp)
                   ENDIF
                ELSE  ! Embedding is open-shell, but subsystem is closed-shell
                   CALL dbcsr_add(opt_dfet_mat%p_diff(1)%matrix, opt_dfet_mat%p_subsys(1)%matrix, &
@@ -2359,25 +2381,27 @@ CONTAINS
                ENDIF
             ELSE
                CALL dbcsr_add(opt_dfet_mat%p_diff(1)%matrix, opt_dfet_mat%p_subsys(1)%matrix, &
-                    alpha_scalar=1.0_dp, beta_scalar=-1.0_dp)
+                              alpha_scalar=1.0_dp, beta_scalar=-1.0_dp)
             ENDIF
 
          ENDDO ! i_force_eval
 
          ! Calculate the Wu-Yang functional
-         opt_dfet_mat%w_func(i_iter) = opt_dfet_mat%w_func(i_iter) - &
-         add_dfet_mat_to_w_func(opt_dfet_mat, force_env%sub_force_env(ref_subsys_number)%force_env%qs_env)
-         corr = add_dfet_mat_to_w_func(opt_dfet_mat, force_env%sub_force_env(ref_subsys_number)%force_env%qs_env)
-         write(*,*) 'W=', opt_dfet_mat%w_func(i_iter), corr
+         opt_dfet_mat%w_func(i_iter) = opt_dfet_mat%w_func(i_iter) - opt_dfet_mat%dfet_mat_corr
+         WRITE (*, *) 'W = ', opt_dfet_mat%w_func(i_iter)
+
+         ! Take the optimization step
+         CALL dfet_mat_opt_step(opt_dfet_mat, force_env%sub_force_env(ref_subsys_number)%force_env%qs_env, i_iter)
+
+         ! Print potential for restart
+         CALL print_dfet_mat_restart(force_env%sub_force_env(ref_subsys_number)%force_env%qs_env,&
+                                               opt_dfet_mat, i_iter, .FALSE.)
 
          ! Check convergence
          CALL print_dfet_mat_opt_info(output_unit, i_iter, opt_dfet_mat)
          CALL check_dfet_mat(opt_dfet_mat, force_env%sub_force_env(ref_subsys_number)%force_env%qs_env, output_unit)
 
-         ! Take the optimization step
-         CALL dfet_mat_opt_step(opt_dfet_mat, force_env%sub_force_env(ref_subsys_number)%force_env%qs_env, i_iter)
-         CALL release_dfet_mat_term(opt_dfet_mat)
-
+         IF (opt_dfet_mat%converged) EXIT
       ENDDO ! i_iter
 
       ! Substitute the correct energy in energies: only on rank 0
@@ -2385,9 +2409,35 @@ CONTAINS
          energies(cluster_subsys_num) = cluster_energy
       ENDIF
 
-      CALL  release_dfet_mat_opt(opt_dfet_mat)
+      CALL cp_print_key_finished_output(output_unit, logger, force_env%force_env_section, &
+                                        "PRINT%PROGRAM_RUN_INFO")
 
-      converged_embed = .FALSE.
+      ! If converged send the embedding potential to the higher-level calculation.
+      IF (opt_dfet_mat%converged) THEN
+         CALL get_qs_env(force_env%sub_force_env(ref_subsys_number + 1)%force_env%qs_env, dft_control=dft_control)
+         nspins_subsys = dft_control%nspins
+         dft_control%apply_dfet_mat_pot = .TRUE.
+         ! The embedded subsystem corresponds to subsystem #2, where spin change is possible
+         CALL dfet_mat_ks_matrix(force_env%sub_force_env(ref_subsys_number)%force_env%qs_env, &
+                                 force_env%sub_force_env(ref_subsys_number+1)%force_env%qs_env, &
+                                 opt_dfet_mat, i_force_eval, i_iter)
+
+         ! Substitute the correct energy in energies: only on rank 0
+         IF (force_env%sub_force_env(cluster_subsys_num)%force_env%para_env%ionode) THEN
+            energies(cluster_subsys_num) = cluster_energy
+         ENDIF
+         ! Print converged potential
+         CALL print_dfet_mat_restart(force_env%sub_force_env(ref_subsys_number)%force_env%qs_env,&
+                                               opt_dfet_mat, i_iter, .TRUE.)
+
+      ENDIF
+
+      ! Release stuff
+      CALL release_dfet_mat_opt(opt_dfet_mat)
+
+      converged_embed = opt_dfet_mat%converged
+
+      CALL timestop(handle)
 
    END SUBROUTINE dfet_matrix_embedding
 

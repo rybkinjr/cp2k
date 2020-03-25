@@ -94,7 +94,7 @@ MODULE hfx_types
 
    IMPLICIT NONE
    PRIVATE
-   PUBLIC :: hfx_type, hfx_create, hfx_release, &
+   PUBLIC :: hfx_type, hfx_create, hfx_release, hfx_ri_release, &
              hfx_set_distr_energy, &
              hfx_set_distr_forces, &
              hfx_cell_type, hfx_distribution, &

@@ -40,18 +40,19 @@ MODULE input_cp2k_dft
         broyden_type_2_explicit, broyden_type_2_explicit_ls, broyden_type_2_ls, casci_canonical, &
         cdft_alpha_constraint, cdft_beta_constraint, cdft_charge_constraint, &
         cdft_magnetization_constraint, cholesky_dbcsr, cholesky_inverse, cholesky_off, &
-        cholesky_reduce, cholesky_restore, core_guess, diag_block_davidson, diag_block_krylov, &
-        diag_filter_matrix, diag_ot, diag_standard, dmft_model, do_admm_aux_exch_func_bee, &
-        do_admm_aux_exch_func_default, do_admm_aux_exch_func_none, do_admm_aux_exch_func_opt, &
-        do_admm_aux_exch_func_pbex, do_admm_basis_projection, do_admm_blocked_projection, &
-        do_admm_blocking_purify_full, do_admm_charge_constrained_projection, &
-        do_admm_exch_scaling_merlot, do_admm_exch_scaling_none, do_admm_purify_cauchy, &
-        do_admm_purify_cauchy_subspace, do_admm_purify_mcweeny, do_admm_purify_mo_diag, &
-        do_admm_purify_mo_no_diag, do_admm_purify_none, do_admm_purify_none_dm, do_arnoldi, &
-        do_bch, do_cn, do_ddapc_constraint, do_ddapc_restraint, do_em, do_etrs, do_full_density, &
-        do_gapw_gcs, do_gapw_gct, do_gapw_log, do_loc_both, do_loc_crazy, do_loc_direct, &
-        do_loc_homo, do_loc_jacobi, do_loc_l1_norm_sd, do_loc_lumo, do_loc_max, do_loc_min, &
-        do_loc_none, do_loc_scdm, do_lri_inv, do_lri_inv_auto, do_lri_opt_all, do_lri_opt_coeff, &
+        cholesky_reduce, cholesky_restore, core_guess, dfet_mat_conj_grad, dfet_mat_steep_desc, &
+        diag_block_davidson, diag_block_krylov, diag_filter_matrix, diag_ot, diag_standard, &
+        dmft_model, do_admm_aux_exch_func_bee, do_admm_aux_exch_func_default, &
+        do_admm_aux_exch_func_none, do_admm_aux_exch_func_opt, do_admm_aux_exch_func_pbex, &
+        do_admm_basis_projection, do_admm_blocked_projection, do_admm_blocking_purify_full, &
+        do_admm_charge_constrained_projection, do_admm_exch_scaling_merlot, &
+        do_admm_exch_scaling_none, do_admm_purify_cauchy, do_admm_purify_cauchy_subspace, &
+        do_admm_purify_mcweeny, do_admm_purify_mo_diag, do_admm_purify_mo_no_diag, &
+        do_admm_purify_none, do_admm_purify_none_dm, do_arnoldi, do_bch, do_cn, &
+        do_ddapc_constraint, do_ddapc_restraint, do_em, do_etrs, do_full_density, do_gapw_gcs, &
+        do_gapw_gct, do_gapw_log, do_loc_both, do_loc_crazy, do_loc_direct, do_loc_homo, &
+        do_loc_jacobi, do_loc_l1_norm_sd, do_loc_lumo, do_loc_max, do_loc_min, do_loc_none, &
+        do_loc_scdm, do_lri_inv, do_lri_inv_auto, do_lri_opt_all, do_lri_opt_coeff, &
         do_lri_opt_exps, do_lri_pseudoinv_diag, do_lri_pseudoinv_svd, do_method_am1, &
         do_method_dftb, do_method_gapw, do_method_gapw_xc, do_method_gpw, do_method_lrigpw, &
         do_method_mndo, do_method_mndod, do_method_ofgpw, do_method_pdg, do_method_pm3, &
@@ -106,6 +107,7 @@ MODULE input_cp2k_dft
    USE input_cp2k_ec,                   ONLY: create_ec_section
    USE input_cp2k_field,                ONLY: create_efield_section,&
                                               create_per_efield_section
+   USE input_cp2k_hfx,                  ONLY: create_hf_ri_section
    USE input_cp2k_kpoints,              ONLY: create_kpoints_section
    USE input_cp2k_ls,                   ONLY: create_ls_scf_section
    USE input_cp2k_mm,                   ONLY: create_dipoles_section,&
@@ -146,7 +148,6 @@ MODULE input_cp2k_dft
    USE qs_mom_types,                    ONLY: create_mom_section
    USE string_utilities,                ONLY: newline,&
                                               s2a
-   USE input_cp2k_hfx,                   ONLY: create_hf_ri_section
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -6187,17 +6188,17 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_optimize_dfet_mat(section)
       TYPE(section_type), POINTER                        :: section
-      TYPE(section_type), POINTER                        :: subsection
 
       CHARACTER(len=*), PARAMETER :: routineN = 'create_optimize_dfet_mat', &
          routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
+      TYPE(section_type), POINTER                        :: subsection
 
       CPASSERT(.NOT. ASSOCIATED(section))
       CALL section_create(section, __LOCATION__, name="OPT_DFET_MAT", &
                           description="This section specifies optional parameters for DFET matrix potential optimization.", &
-                          n_keywords=8, n_subsections=4, repeats=.FALSE.)
+                          n_keywords=9, n_subsections=1, repeats=.FALSE.)
 
       NULLIFY (keyword)
 
@@ -6243,12 +6244,61 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="OPTIMIZER", &
+                          description="Optimize embedding potential.", &
+                          usage="OPTIMIZER  CG", &
+                          default_i_val=embed_steep_desc, &
+                          enum_c_vals=s2a("STEEPEST_DESCENT", "CG"), &
+                          enum_desc=s2a("Steepest descent.", "Conjugate gradient."), &
+                          enum_i_vals=(/dfet_mat_steep_desc, dfet_mat_conj_grad/))
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="READ_EMBED_POT_MAT", &
+                          description="Read the embedding potential  "// &
+                          "restart in an matrix form as a guess.", &
+                          usage="READ_EMBED_POT .FALSE.", default_l_val=.FALSE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="DFET_MAT_RESTART_FILE_NAME", &
+                          description="Root of the file name where to read the  "// &
+                          "potential guess in matrix form.", &
+                          usage="DFET_MAT_RESTART_FILE_NAME <FILENAME>", &
+                          type_of_var=lchar_t)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
       NULLIFY (subsection)
       CALL create_hf_ri_section(subsection)
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
+      CALL create_print_embed_restart_mat(section)
+
    END SUBROUTINE create_optimize_dfet_mat
+
+! **************************************************************************************************
+!> \brief Controls printing restart for dfet matrix potential optimization
+!> \param section ...
+!> \author VR [03.2020]
+! **************************************************************************************************
+   SUBROUTINE create_print_embed_restart_mat(section)
+      TYPE(section_type), POINTER                        :: section
+
+      CHARACTER(len=*), PARAMETER :: routineN = 'create_print_embed_restart_mat', &
+         routineP = moduleN//':'//routineN
+
+      TYPE(section_type), POINTER                        :: print_key
+
+      NULLIFY (print_key)
+      CALL cp_print_key_section_create(print_key, __LOCATION__, "EMBED_POT_MAT", &
+                                       description="Controls the printing of the binary "// &
+                                       "with embedding potential in matrix form", &
+                                       print_level=silent_print_level, add_last=add_last_numeric, filename="")
+      CALL section_add_subsection(section, print_key)
+      CALL section_release(print_key)
+   END SUBROUTINE create_print_embed_restart_mat
 
 ! **************************************************************************************************
 !> \brief ...

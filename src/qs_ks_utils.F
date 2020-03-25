@@ -52,7 +52,7 @@ MODULE qs_ks_utils
    USE dbcsr_api,                       ONLY: &
         dbcsr_add, dbcsr_copy, dbcsr_deallocate_matrix, dbcsr_dot, dbcsr_get_info, dbcsr_init_p, &
         dbcsr_multiply, dbcsr_p_type, dbcsr_release_p, dbcsr_scale, dbcsr_scale_by_vector, &
-        dbcsr_set, dbcsr_type, dbcsr_trace
+        dbcsr_set, dbcsr_type
    USE input_constants,                 ONLY: &
         cdft_alpha_constraint, cdft_beta_constraint, cdft_charge_constraint, &
         cdft_magnetization_constraint, do_admm_aux_exch_func_none, do_ppl_grid, sic_ad, sic_eo, &
@@ -1839,15 +1839,22 @@ CONTAINS
 
    END SUBROUTINE get_embed_potential_energy
 
+! **************************************************************************************************
+!> \brief ...
+!> \param qs_env ...
+!> \param ks_matrix ...
+!> \param e_dfet_mat ...
+! **************************************************************************************************
    SUBROUTINE dfet_ks_matrix(qs_env, ks_matrix, e_dfet_mat)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: ks_matrix
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER       :: dfet_mat_term
+      REAL(kind=dp)                                      :: e_dfet_mat
+
+      INTEGER                                            :: img, ispin
+      REAL(kind=dp)                                      :: e_temp
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: dfet_mat_term, rho_ao
       TYPE(dft_control_type), POINTER                    :: dft_control
-      INTEGER                                            :: ispin, img
-      REAL(kind=dp)                                      :: e_dfet_mat, e_temp
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho_ao
+      TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(qs_rho_type), POINTER                         :: rho
 
       e_dfet_mat = 0.0_dp
@@ -1861,15 +1868,14 @@ CONTAINS
       ! Add embedding potential to the Kohn-Sham matrix
       DO img = 1, dft_control%nimages
          DO ispin = 1, dft_control%nspins
-            CALL dbcsr_add(ks_matrix(ispin,1)%matrix, dfet_mat_term(ispin)%matrix, 1.0_dp, 1.0_dp)
+            CALL dbcsr_add(ks_matrix(ispin, 1)%matrix, dfet_mat_term(ispin)%matrix, 1.0_dp, 1.0_dp)
             ! Compute energy correction
             CALL dbcsr_dot(rho_ao(ispin)%matrix, dfet_mat_term(ispin)%matrix, e_temp)
             e_dfet_mat = e_dfet_mat + e_temp
-            write(*,*) 'e_dfet_mat', e_dfet_mat
+            WRITE (*, *) 'e_dfet_mat', e_dfet_mat
          ENDDO
       ENDDO
 
    END SUBROUTINE dfet_ks_matrix
-
 
 END MODULE qs_ks_utils

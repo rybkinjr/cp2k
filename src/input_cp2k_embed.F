@@ -16,8 +16,8 @@ MODULE input_cp2k_embed
                                               cp_print_key_section_create,&
                                               low_print_level
    USE input_constants,                 ONLY: dfet,&
-                                              dmfet,&
-                                              dfet_mat
+                                              dfet_mat,&
+                                              dmfet
    USE input_keyword_types,             ONLY: keyword_create,&
                                               keyword_release,&
                                               keyword_type

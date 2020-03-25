@@ -343,6 +343,7 @@ CONTAINS
 !> \param nelectron_total ...
 !> \param nelectron_spin ...
 !> \param admm_dm ...
+!> \param dfet_mat_term ...
 ! **************************************************************************************************
    SUBROUTINE get_ks_env(ks_env, v_hartree_rspace, &
                          s_mstruct_changed, rho_changed, &
@@ -425,7 +426,6 @@ CONTAINS
       TYPE(admm_dm_type), OPTIONAL, POINTER              :: admm_dm
       TYPE(dbcsr_p_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: dfet_mat_term
-
 
       IF (.NOT. ASSOCIATED(ks_env)) CPABORT("get_ks_env: not associated")
       IF (ks_env%ref_count < 1) CPABORT("get_ks_env: ks_env%ref_count<1")
@@ -605,6 +605,7 @@ CONTAINS
 !> \param para_env ...
 !> \param blacs_env ...
 !> \param admm_dm ...
+!> \param dfet_mat_term ...
 ! **************************************************************************************************
    SUBROUTINE set_ks_env(ks_env, v_hartree_rspace, &
                          s_mstruct_changed, rho_changed, &
@@ -834,8 +835,8 @@ CONTAINS
             IF (ASSOCIATED(ks_env%task_list_soft)) &
                CALL deallocate_task_list(ks_env%task_list_soft)
 
-            IF (ASSOCIATED(ks_env%dfet_mat_term)) &
-                CALL dbcsr_deallocate_matrix_set(ks_env%dfet_mat_term)
+            !IF (ASSOCIATED(ks_env%dfet_mat_term)) &
+            !   CALL dbcsr_deallocate_matrix_set(ks_env%dfet_mat_term)
 
             IF (ASSOCIATED(ks_env%rho_nlcc_g)) THEN
                CALL pw_release(ks_env%rho_nlcc_g%pw)
