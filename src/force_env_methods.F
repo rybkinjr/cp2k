@@ -189,6 +189,7 @@ MODULE force_env_methods
                                               zero_virial
    USE qs_ks_types,                     ONLY: get_ks_env,&
                                               qs_ks_env_type
+   USE dfet_mat_utils,                  ONLY: mulliken_pot_partitioning
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -1550,6 +1551,10 @@ CONTAINS
             glob_natoms(iforce_eval) = natom
             CALL cp_result_copy(loc_results, results(iforce_eval)%results)
          END IF
+
+         write(*,*) 'mapping index'
+         write(*,*) map_index
+
          ! Deallocate map_index array
          IF (ASSOCIATED(map_index)) THEN
             DEALLOCATE (map_index)
@@ -2328,7 +2333,7 @@ CONTAINS
             WRITE (*, *) 'Came here?'
             CALL dfet_mat_ks_matrix(force_env%sub_force_env(ref_subsys_number)%force_env%qs_env, &
                                     force_env%sub_force_env(i_force_eval)%force_env%qs_env, &
-                                    opt_dfet_mat, i_force_eval, i_iter)
+                                    opt_dfet_mat, i_force_eval, i_iter, output_unit)
             WRITE (*, *) 'Came over here?'
 
             ! Calculate the new density
@@ -2409,18 +2414,22 @@ CONTAINS
          energies(cluster_subsys_num) = cluster_energy
       ENDIF
 
-      CALL cp_print_key_finished_output(output_unit, logger, force_env%force_env_section, &
-                                        "PRINT%PROGRAM_RUN_INFO")
-
       ! If converged send the embedding potential to the higher-level calculation.
       IF (opt_dfet_mat%converged) THEN
+
          CALL get_qs_env(force_env%sub_force_env(ref_subsys_number + 1)%force_env%qs_env, dft_control=dft_control)
          nspins_subsys = dft_control%nspins
          dft_control%apply_dfet_mat_pot = .TRUE.
          ! The embedded subsystem corresponds to subsystem #2, where spin change is possible
          CALL dfet_mat_ks_matrix(force_env%sub_force_env(ref_subsys_number)%force_env%qs_env, &
                                  force_env%sub_force_env(ref_subsys_number+1)%force_env%qs_env, &
-                                 opt_dfet_mat, i_force_eval, i_iter)
+                                 opt_dfet_mat, i_force_eval, i_iter, output_unit)
+
+         ! Find atomic contributions to matrix potential term
+         CALL mulliken_pot_partitioning(force_env%sub_force_env(ref_subsys_number)%force_env%qs_env,&
+                                     opt_dfet_mat%dfet_mat_term, output_unit, 1, opt_dfet_mat%reduce_dfet_mat,&
+                                     opt_dfet_mat%reduce_thresh, opt_dfet_mat%i_iter, .TRUE.,&
+                                     opt_dfet_mat%real_atoms)
 
          ! Substitute the correct energy in energies: only on rank 0
          IF (force_env%sub_force_env(cluster_subsys_num)%force_env%para_env%ionode) THEN
@@ -2431,6 +2440,9 @@ CONTAINS
                                                opt_dfet_mat, i_iter, .TRUE.)
 
       ENDIF
+
+      CALL cp_print_key_finished_output(output_unit, logger, force_env%force_env_section, &
+                                        "PRINT%PROGRAM_RUN_INFO")
 
       ! Release stuff
       CALL release_dfet_mat_opt(opt_dfet_mat)

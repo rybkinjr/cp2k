@@ -3436,6 +3436,14 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="DFET_MAT_TERM_FILE_NAME", &
+                          description="Root of the file name where to read the embedding "// &
+                          "term in the matrix form (unformatted).", &
+                          usage="DFET_MAT_TERM_FILE_NAME <FILENAME>", &
+                          type_of_var=lchar_t)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
       CALL create_distribution_section(subsection)
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
@@ -6269,12 +6277,36 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="REDUCE_DFET_MAT", &
+                          description="Reduces the size of embedding potential  "// &
+                          "in matrix form by removing non-contributing atoms.", &
+                          usage="REDUCE_DFET_MAT FALSE", default_l_val=.FALSE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="REDUCE_THRESH", &
+                          description="Atoms with relative contribution to the "// &
+                          "potential less than the value will be removed", &
+                          usage="REDUCE_THRESH 0.01", default_r_val=0.01_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="REAL_ATOMS", &
+                          description="Specifies a list of atomic indexes of real (not ghost) atoms "// &
+                          "in the embedded cluster subsystem",&
+                          usage="REAL_ATOMS {integer}", type_of_var=integer_t, n_var=-1, &
+                          repeats=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
       NULLIFY (subsection)
       CALL create_hf_ri_section(subsection)
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
       CALL create_print_embed_restart_mat(section)
+      CALL create_print_reduced_embed_mat_term(section)
+      CALL create_print_embed_mat_term(section)
 
    END SUBROUTINE create_optimize_dfet_mat
 
@@ -6299,6 +6331,49 @@ CONTAINS
       CALL section_add_subsection(section, print_key)
       CALL section_release(print_key)
    END SUBROUTINE create_print_embed_restart_mat
+! **************************************************************************************************
+!> \brief Controls printing reduced dfet matrix potential term
+!> \param section ...
+!> \author VR [03.2020]
+! **************************************************************************************************
+   SUBROUTINE create_print_embed_mat_term(section)
+      TYPE(section_type), POINTER                        :: section
+
+      CHARACTER(len=*), PARAMETER :: routineN = 'create_print_embed_mat_term', &
+         routineP = moduleN//':'//routineN
+
+      TYPE(section_type), POINTER                        :: print_key
+
+      NULLIFY (print_key)
+      CALL cp_print_key_section_create(print_key, __LOCATION__, "DFET_MAT_TERM", &
+                                       description="Controls the printing of the binary "// &
+                                       "with full embedding potential term in matrix form", &
+                                       print_level=silent_print_level, add_last=add_last_numeric, filename="")
+      CALL section_add_subsection(section, print_key)
+      CALL section_release(print_key)
+   END SUBROUTINE create_print_embed_mat_term
+
+! **************************************************************************************************
+!> \brief Controls printing reduced dfet matrix potential term
+!> \param section ...
+!> \author VR [03.2020]
+! **************************************************************************************************
+   SUBROUTINE create_print_reduced_embed_mat_term(section)
+      TYPE(section_type), POINTER                        :: section
+
+      CHARACTER(len=*), PARAMETER :: routineN = 'create_print_embed_reduced_mat_term', &
+         routineP = moduleN//':'//routineN
+
+      TYPE(section_type), POINTER                        :: print_key
+
+      NULLIFY (print_key)
+      CALL cp_print_key_section_create(print_key, __LOCATION__, "REDUCED_DFET_MAT_TERM", &
+                                       description="Controls the printing of the binary "// &
+                                       "with reduced embedding potential term in matrix form", &
+                                       print_level=silent_print_level, add_last=add_last_numeric, filename="")
+      CALL section_add_subsection(section, print_key)
+      CALL section_release(print_key)
+   END SUBROUTINE create_print_reduced_embed_mat_term
 
 ! **************************************************************************************************
 !> \brief ...

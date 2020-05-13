@@ -62,6 +62,7 @@ MODULE qs_energy_init
    USE se_core_core,                    ONLY: se_core_core_interaction
    USE se_core_matrix,                  ONLY: build_se_core_matrix
    USE xtb_matrices,                    ONLY: build_xtb_matrices
+   USE optimize_dfet_mat_potential,     ONLY: given_dfet_mat_pot
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -355,6 +356,7 @@ CONTAINS
       ! Matrix DFET
       IF (dft_control%qs_control%dfet_mat_embedded) THEN
          dft_control%apply_dfet_mat_pot = .TRUE.
+         CALL given_dfet_mat_pot(qs_env)
       ENDIF
       ! Matrix embedding potential
       IF (dft_control%qs_control%dmfet_embedded) THEN

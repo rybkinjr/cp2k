@@ -4,6 +4,8 @@
 !--------------------------------------------------------------------------------------------------!
 
 MODULE optimize_dfet_mat_potential
+   USE memory_utilities,                ONLY: reallocate
+   USE dfet_mat_utils,                  ONLY: mulliken_pot_partitioning
    USE pw_methods,                      ONLY: &
         pw_axpy, pw_copy, pw_derive, pw_dr2, pw_integral_ab, pw_integrate_function, pw_scale, &
         pw_transfer, pw_zero
@@ -118,7 +120,7 @@ MODULE optimize_dfet_mat_potential
 
    PUBLIC :: prepare_dfet_mat_opt, release_dfet_mat_opt,  check_dfet_mat, dfet_mat_opt_step, &
              release_dfet_mat_term, dfet_mat_ks_matrix, print_dfet_mat_opt_info,&
-             print_dfet_mat_restart
+             print_dfet_mat_restart, given_dfet_mat_pot
 
 CONTAINS
 
@@ -131,7 +133,8 @@ CONTAINS
       TYPE(opt_dfet_mat_pot_type)                        :: opt_dfet_mat
       TYPE(section_vals_type), POINTER                   :: opt_dfet_mat_section
       TYPE(section_vals_type), POINTER                   :: ri_section
-      INTEGER                                            :: dfet_mat_optimizer
+      INTEGER                                            :: dfet_mat_optimizer, i, n_rep
+      INTEGER, DIMENSION(:), POINTER                     :: tmp_v
 
       ! Read keywords
 
@@ -167,6 +170,25 @@ CONTAINS
       CASE DEFAULT
          opt_dfet_mat%sd = .TRUE.
       END SELECT
+
+      CALL section_vals_val_get(opt_dfet_mat_section, "REDUCE_DFET_MAT", &
+                                l_val=opt_dfet_mat%reduce_dfet_mat)
+
+      CALL section_vals_val_get(opt_dfet_mat_section, "REDUCE_THRESH", &
+                                r_val=opt_dfet_mat%reduce_thresh)
+
+      ALLOCATE (opt_dfet_mat%real_atoms(0))
+      NULLIFY (tmp_v)
+      CALL section_vals_val_get(opt_dfet_mat_section, "REAL_ATOMS", n_rep_val=n_rep)
+      DO i = 1, n_rep
+         CALL section_vals_val_get(opt_dfet_mat_section, "REAL_ATOMS", i_vals=tmp_v, i_rep_val=i)
+         CALL reallocate(opt_dfet_mat%real_atoms, 1, SIZE(opt_dfet_mat%real_atoms) + SIZE(tmp_v))
+         opt_dfet_mat%real_atoms(SIZE(opt_dfet_mat%real_atoms) - SIZE(tmp_v) + 1:SIZE(opt_dfet_mat%real_atoms)) &
+         = tmp_v
+      END DO
+      IF (ASSOCIATED(tmp_v)) THEN
+         DEALLOCATE (tmp_v)
+      END IF
 
       NULLIFY(ri_section)
       ri_section => section_vals_get_subs_vals(opt_dfet_mat_section, "RI")
@@ -288,6 +310,11 @@ CONTAINS
       ENDDO
       ! Quantities for conjugate gradient
       If (opt_dfet_mat%cg) then
+         NULLIFY (opt_dfet_mat%prev_step)
+         NULLIFY (opt_dfet_mat%prev_dir)
+         NULLIFY (opt_dfet_mat%dir)
+         NULLIFY (opt_dfet_mat%prev_v_mat)
+         NULLIFY (opt_dfet_mat%prev_grad)
          CALL dbcsr_allocate_matrix_set(opt_dfet_mat%prev_step, nspins)
          CALL dbcsr_allocate_matrix_set(opt_dfet_mat%prev_dir, nspins)
          CALL dbcsr_allocate_matrix_set(opt_dfet_mat%dir, nspins)
@@ -334,7 +361,7 @@ CONTAINS
       ! Read potential in matrix form is required
       IF (opt_dfet_mat%read_embed_pot_mat) &
          CALL read_embed_pot_mat(qs_env,opt_dfet_mat_section, opt_dfet_mat%open_shell_embed,&
-             opt_dfet_mat%v_mat)
+             opt_dfet_mat%v_mat, .FALSE.)
 
    END SUBROUTINE prepare_dfet_mat_opt
 
@@ -370,9 +397,13 @@ CONTAINS
          ENDDO
          DEALLOCATE (opt_dfet_mat%prev_step)
          DEALLOCATE (opt_dfet_mat%prev_dir)
+         DEALLOCATE (opt_dfet_mat%dir)
          DEALLOCATE (opt_dfet_mat%prev_v_mat)
          DEALLOCATE (opt_dfet_mat%prev_grad)
       Endif
+ 
+      DEALLOCATE (opt_dfet_mat%real_atoms)
+      DEALLOCATE (opt_dfet_mat%w_func)
 
    END SUBROUTINE release_dfet_mat_opt
 
@@ -397,10 +428,6 @@ CONTAINS
       nspins = 1
       IF (opt_dfet_mat%open_shell_embed) nspins = 2
 
-      ! DM difference serve as rho_ao
-      !rho_ao => opt_dfet_mat%p_diff
-      rho_ao_2d(1:nspins, 1:1) => opt_dfet_mat%p_diff
-
       calc_grad = .TRUE.
       ! If the optimizer is CG and the energy decreases, we trace back and don't recalculate gradient
       If (step .GT. 1) then
@@ -419,11 +446,28 @@ CONTAINS
             CALL dbcsr_init_p(gradient(ispin)%matrix)
             CALL dbcsr_create(gradient(ispin)%matrix, template=opt_dfet_mat%v_mat(1)%matrix)
          ENDDO
-         mat_2d(1:nspins, 1:1) => gradient(1:nspins)
+
+         ! Make auxiliary matrices
+         NULLIFY (mat_2d)
+         CALL dbcsr_allocate_matrix_set(mat_2d, nspins, 1)
+         NULLIFY (rho_ao_2d)
+         CALL dbcsr_allocate_matrix_set(rho_ao_2d, nspins, 1)
+         Do ispin = 1, nspins
+            ALLOCATE (mat_2d(ispin, 1)%matrix)
+            CALL dbcsr_init_p(mat_2d(ispin, 1)%matrix)
+            CALL dbcsr_create(mat_2d(ispin, 1)%matrix, template=gradient(ispin)%matrix)
+            CALL dbcsr_copy(mat_2d(ispin, 1)%matrix, gradient(ispin)%matrix)
+            ! DM difference serve as rho_ao
+            ALLOCATE (rho_ao_2d(ispin, 1)%matrix)
+            CALL dbcsr_init_p(rho_ao_2d(ispin, 1)%matrix)
+            CALL dbcsr_create(rho_ao_2d(ispin, 1)%matrix, template=opt_dfet_mat%p_diff(ispin)%matrix)
+            CALL dbcsr_copy(rho_ao_2d(ispin, 1)%matrix, opt_dfet_mat%p_diff(ispin)%matrix)
+         Enddo
       
          ! Some settings
          geometry_did_change = .FALSE.
-         If (step .EQ. 1) THEN
+         ! If it's first step and we have restarted, no need to recompute integrals
+         If ((step .EQ. 1) .AND. (.NOT. opt_dfet_mat%read_embed_pot_mat)) THEN
              geometry_did_change = .TRUE.
          Endif
          hf_fraction = 1.0_dp
@@ -432,6 +476,10 @@ CONTAINS
          CALL hfx_ri_update_ks(qs_env=qs_env, ri_data=opt_dfet_mat%ri_data, ks_matrix=mat_2d, ehfx=ehfx, &
                                rho_ao=rho_ao_2d, geometry_did_change = geometry_did_change, nspins=nspins, &
                                hf_fraction=hf_fraction)
+         ! Copy from auxiliary structure to gradient
+         DO ispin = 1, nspins
+            CALL dbcsr_copy(gradient(ispin)%matrix, mat_2d(ispin, 1)%matrix)
+         ENDDO
          ! Do conjugate gradient if requested
          If (opt_dfet_mat%cg) then
             CALL cg_step(opt_dfet_mat, gradient)
@@ -450,7 +498,19 @@ CONTAINS
             CALL dbcsr_release(gradient(ispin)%matrix)
             DEALLOCATE (gradient(ispin)%matrix)
          ENDDO
+         write(*,*) 'step', step
+         write(*,*) 'gradient norm', opt_dfet_mat%int_grad
          DEALLOCATE (gradient)
+   
+         ! Deallocate auxiliary matrices
+         DO ispin = 1, nspins
+            CALL dbcsr_release(mat_2d(ispin, 1)%matrix)
+            DEALLOCATE (mat_2d(ispin, 1)%matrix)
+            CALL dbcsr_release(rho_ao_2d(ispin, 1)%matrix)
+            DEALLOCATE (rho_ao_2d(ispin, 1)%matrix)
+         ENDDO
+         DEALLOCATE (mat_2d)
+         DEALLOCATE (rho_ao_2d)
 
       Endif
 
@@ -617,7 +677,7 @@ CONTAINS
 !> \param opt_dmfet ...
 !> \param i_force_eval ...
 ! **************************************************************************************************
-   SUBROUTINE dfet_mat_ks_matrix(qs_env_ref, qs_env, opt_dfet_mat, i_force_eval, step)
+   SUBROUTINE dfet_mat_ks_matrix(qs_env_ref, qs_env, opt_dfet_mat, i_force_eval, step, output_unit)
       TYPE(qs_environment_type), POINTER                 :: qs_env, qs_env_ref
       TYPE(opt_dfet_mat_pot_type)                        :: opt_dfet_mat
       INTEGER                                            :: i_force_eval, step
@@ -631,16 +691,23 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control, dft_control_ref
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho_ao_ref
       TYPE(qs_rho_type), POINTER                         :: rho_ref
+      INTEGER                                            :: output_unit
 
       my_change_spin = .FALSE.
       IF ((opt_dfet_mat%change_spin) .AND. (i_force_eval .EQ. 2)) my_change_spin = .TRUE.
-
       !
       zero_pot = .FALSE.
       geometry_did_change = .FALSE.
-      If ( (step .EQ. 1) .AND. (.NOT. opt_dfet_mat%read_embed_pot_mat) ) zero_pot = .TRUE.
+      If (step .EQ. 1) then
+         If (.NOT. opt_dfet_mat%read_embed_pot_mat) then
+             zero_pot = .TRUE.
+         Else
+         ! If we restart, then we need to compute 3-center integrals here
+            geometry_did_change = .TRUE.
+         Endif
+      Endif
       write(*,*) 'zero_pot=', zero_pot
-          write(*,*) 'NORM V before hfx', dbcsr_frobenius_norm(opt_dfet_mat%v_mat(1)%matrix)
+      write(*,*) 'NORM V before hfx', dbcsr_frobenius_norm(opt_dfet_mat%v_mat(1)%matrix)
 
       ! Global spin states
       nspins = 1
@@ -709,10 +776,18 @@ CONTAINS
 
 
           ENDDO
- 
+
           ! Since the ks matrix term is the same for all systems, we compute its trace with reference
           ! density matrix here, only with one force_eval
           If (i_force_eval .EQ. 1) then
+   
+            ! Likewise, partitioning should be done for one subsystem:
+            ! find atomic contributions to dfet_mat_term
+            CALL mulliken_pot_partitioning(qs_env_ref,&
+                 opt_dfet_mat%dfet_mat_term, output_unit, 1, opt_dfet_mat%reduce_dfet_mat,&
+                 opt_dfet_mat%reduce_thresh, opt_dfet_mat%i_iter, .FALSE., &
+                 opt_dfet_mat%real_atoms)
+ 
             CALL get_qs_env(qs_env_ref, rho=rho_ref, ks_env=ks_env_ref, dft_control=dft_control_ref)
             CALL qs_rho_get(rho_ref, rho_ao=rho_ao_ref)
             nspins_ref = dft_control_ref%nspins
@@ -745,9 +820,7 @@ CONTAINS
       ! Set embedding potentials in the Kohn-Sham environment
       CALL set_ks_env(ks_env=ks_env, dfet_mat_term=opt_dfet_mat%dfet_mat_term)
 
-
    END SUBROUTINE dfet_mat_ks_matrix
-
 
 ! **************************************************************************************************
 !> \brief ...
@@ -842,7 +915,7 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief Read the embedding potential from the binary file
 ! **************************************************************************************************
-   SUBROUTINE read_embed_pot_mat(qs_env, section, open_shell_embed, v_mat)
+   SUBROUTINE read_embed_pot_mat(qs_env, section, open_shell_embed, v_mat, stand_alone)
       TYPE(qs_environment_type), POINTER                 :: qs_env
       CHARACTER(LEN=default_path_length)                 :: filename
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
@@ -852,7 +925,7 @@ CONTAINS
       INTEGER                                            :: restart_unit, nao
       TYPE(section_vals_type), POINTER                   :: section
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: v_mat
-      LOGICAL                                            :: open_shell_embed
+      LOGICAL                                            :: open_shell_embed, stand_alone
 
       ! Make fm objects
       CALL dbcsr_get_info(v_mat(1)%matrix, nfullrows_total=nao)
@@ -878,7 +951,7 @@ CONTAINS
       IF (para_env%ionode) THEN
 
          ! Get the restart file name
-         CALL embed_restart_file_name(filename, section)
+         CALL dfet_restart_file_name(filename, section, stand_alone)
          restart_unit = -1
          CALL open_file(file_name=filename, &
                         file_action="READ", &
@@ -898,7 +971,7 @@ CONTAINS
       ! Copy from fm to dbcsr
       CALL copy_fm_to_dbcsr(dfet_mat_pot, v_mat(1)%matrix)
       If (open_shell_embed) CALL copy_fm_to_dbcsr(dfet_mat_pot_beta, v_mat(2)%matrix)
-
+   
       ! Release my_embed_pot_coef
       CALL cp_fm_release(dfet_mat_pot)
       IF (open_shell_embed) CALL cp_fm_release(dfet_mat_pot_beta)
@@ -914,23 +987,28 @@ CONTAINS
 !> \param filename ...
 !> \param section ...
 ! **************************************************************************************************
-   SUBROUTINE embed_restart_file_name(filename, section)
+   SUBROUTINE dfet_restart_file_name(filename, section, stand_alone)
       CHARACTER(LEN=default_path_length), INTENT(OUT)    :: filename
       TYPE(section_vals_type), POINTER                   :: section
+      LOGICAL                                            :: stand_alone
 
       LOGICAL                                            :: exist
 
       exist = .FALSE.
-      CALL section_vals_val_get(section, "DFET_MAT_RESTART_FILE_NAME", c_val=filename)
+      If (.NOT. stand_alone) then
+         CALL section_vals_val_get(section, "DFET_MAT_RESTART_FILE_NAME", c_val=filename)
+      Else
+         CALL section_vals_val_get(section, "DFET_MAT_TERM_FILE_NAME", c_val=filename)
+      Endif
       INQUIRE (FILE=filename, exist=exist)
       IF (.NOT. exist) &
-         CPABORT("Embedding restart file not found. ")
+         CPABORT("DFET matrix embedding restart file not found. ")
 
-   END SUBROUTINE embed_restart_file_name
+   END SUBROUTINE dfet_restart_file_name
 
 ! **************************************************************************************************
 !> \brief ...
-!> \param output_unit ...
+!> \param , output_unitoutput_unit ...
 !> \param step_num ...
 ! **************************************************************************************************
    SUBROUTINE print_dfet_mat_opt_info(output_unit, step_num, opt_dfet_mat)
@@ -1210,5 +1288,52 @@ CONTAINS
       ENDIF
 
    END SUBROUTINE check_dfet_mat
+! **************************************************************************************************
+!> \brief Creates and reads matrix potential for a stand-alone embedded calculation
+!> \param qs_env ...
+! **************************************************************************************************
+   SUBROUTINE given_dfet_mat_pot(qs_env)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      LOGICAL                                            :: open_shell_embed
+      TYPE(dft_control_type), POINTER                    :: dft_control
+      TYPE(section_vals_type), POINTER                   :: input, qs_section
+      TYPE(qs_ks_env_type), POINTER                      :: ks_env
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: dfet_mat_term, p_total
+      INTEGER                                            :: nspins, ispin
+      TYPE(qs_rho_type), POINTER                         :: rho
+
+      NULLIFY (input, dft_control,qs_section)
+      CALL get_qs_env(qs_env=qs_env, &
+                      input=input, &
+                      dft_control=dft_control, &
+                      ks_env=ks_env)
+      qs_section => section_vals_get_subs_vals(input, "DFT%QS")
+      open_shell_embed = .FALSE.
+      IF (dft_control%nspins .EQ. 2) open_shell_embed = .TRUE.
+      nspins = dft_control%nspins
+
+      ! Get the density structure
+      NULLIFY (rho, p_total)
+      CALL get_qs_env(qs_env, rho=rho)
+      NULLIFY (p_total)
+      CALL qs_rho_get(rho, rho_ao=p_total)
+      ! Create matrices
+      NULLIFY (dfet_mat_term)
+      CALL dbcsr_allocate_matrix_set(dfet_mat_term, nspins)
+      DO ispin = 1, nspins
+         ALLOCATE (dfet_mat_term(ispin)%matrix)
+         CALL dbcsr_init_p(dfet_mat_term(ispin)%matrix)
+         CALL dbcsr_create(dfet_mat_term(ispin)%matrix, template=p_total(1)%matrix)
+         CALL dbcsr_set(dfet_mat_term(ispin)%matrix, 0.0_dp)
+      ENDDO
+
+      ! Read the matrix
+      CALL read_embed_pot_mat(qs_env, qs_section, open_shell_embed, dfet_mat_term, .TRUE.)
+
+      ! Set embedding potentials in the Kohn-Sham environment
+      CALL set_ks_env(ks_env=ks_env, dfet_mat_term=dfet_mat_term, given_dfet_mat_term = .TRUE.)
+
+   END  SUBROUTINE given_dfet_mat_pot
+
 
 END MODULE optimize_dfet_mat_potential

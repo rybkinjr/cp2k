@@ -105,13 +105,15 @@ MODULE embed_types
       REAL(KIND=dp)                             :: trust_rad, conv_max, conv_max_spin, conv_int, &
                                                    conv_int_spin, max_step_len, min_step_len, &
                                                    dfet_mat_corr
+      REAL(KIND=dp)                             :: reduce_thresh
       LOGICAL                                   :: converged, read_dfet_mat_pot, &
                                                    change_spin, open_shell_embed
-      LOGICAL                                   :: cg, sd
+      LOGICAL                                   :: cg, sd, reduce_dfet_mat
       LOGICAL                                   :: read_embed_pot_mat
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)  :: w_func, max_grad, int_grad
       INTEGER                                   :: n_iter, i_iter, last_accepted
       INTEGER, ALLOCATABLE, DIMENSION(:)        :: all_nspins
+      INTEGER, DIMENSION(:), POINTER            :: real_atoms
       TYPE(hfx_ri_type)                    :: ri_data
 
    END TYPE opt_dfet_mat_pot_type

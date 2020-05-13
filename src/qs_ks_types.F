@@ -142,7 +142,8 @@ MODULE qs_ks_types
       LOGICAL                                               :: s_mstruct_changed = .TRUE., &
                                                                rho_changed = .TRUE., &
                                                                potential_changed = .TRUE., &
-                                                               forces_up_to_date = .FALSE.
+                                                               forces_up_to_date = .FALSE., &
+                                                               given_dfet_mat_term = .FALSE.
       INTEGER                                               :: n_evals = 0, &
                                                                id_nr = -1, &
                                                                ref_count = 1
@@ -605,7 +606,7 @@ CONTAINS
 !> \param para_env ...
 !> \param blacs_env ...
 !> \param admm_dm ...
-!> \param dfet_mat_term ...
+!> \param nfet_mat_term ...
 ! **************************************************************************************************
    SUBROUTINE set_ks_env(ks_env, v_hartree_rspace, &
                          s_mstruct_changed, rho_changed, &
@@ -623,7 +624,7 @@ CONTAINS
                          sab_se, sab_tbe, sab_core, sab_xb, sab_vdw, sab_scp, sab_almo, sab_kp, &
                          task_list, task_list_aux_fit, task_list_soft, &
                          subsys, dft_control, dbcsr_dist, distribution_2d, pw_env, &
-                         para_env, blacs_env, admm_dm, dfet_mat_term)
+                         para_env, blacs_env, admm_dm, dfet_mat_term, given_dfet_mat_term)
 
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(pw_type), OPTIONAL, POINTER                   :: v_hartree_rspace
@@ -656,6 +657,7 @@ CONTAINS
       TYPE(admm_dm_type), OPTIONAL, POINTER              :: admm_dm
       TYPE(dbcsr_p_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: dfet_mat_term
+      LOGICAL, OPTIONAL                                  :: given_dfet_mat_term
 
       IF (.NOT. ASSOCIATED(ks_env)) CPABORT("set_ks_env: not associated")
       IF (ks_env%ref_count < 1) CPABORT("set_ks_env: ks_env%ref_count<1")
@@ -705,6 +707,7 @@ CONTAINS
       IF (PRESENT(vee)) ks_env%vee => vee
 
       IF (PRESENT(dfet_mat_term)) ks_env%dfet_mat_term => dfet_mat_term
+      IF (PRESENT(given_dfet_mat_term)) ks_env%given_dfet_mat_term = given_dfet_mat_term
 
       IF (PRESENT(neighbor_list_id)) ks_env%neighbor_list_id = neighbor_list_id
       IF (PRESENT(kpoints)) ks_env%kpoints => kpoints
@@ -834,9 +837,12 @@ CONTAINS
                CALL deallocate_task_list(ks_env%task_list_aux_fit)
             IF (ASSOCIATED(ks_env%task_list_soft)) &
                CALL deallocate_task_list(ks_env%task_list_soft)
-
-            !IF (ASSOCIATED(ks_env%dfet_mat_term)) &
-            !   CALL dbcsr_deallocate_matrix_set(ks_env%dfet_mat_term)
+      
+            ! Embedding potential in matrix form
+            IF (ks_env%given_dfet_mat_term) then
+               IF (ASSOCIATED(ks_env%dfet_mat_term)) &
+                  CALL dbcsr_deallocate_matrix_set(ks_env%dfet_mat_term)
+            ENDIF
 
             IF (ASSOCIATED(ks_env%rho_nlcc_g)) THEN
                CALL pw_release(ks_env%rho_nlcc_g%pw)
