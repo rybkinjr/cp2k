@@ -109,7 +109,6 @@ MODULE optimize_dfet_mat_potential
                                               cp_print_key_unit_nr
    USE cp_files,                        ONLY: close_file,&
                                               open_file
-                                              hfx_ri_init_read_input
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -265,9 +264,9 @@ CONTAINS
          POINTER                                         :: qs_kind_set
         TYPE(particle_type), DIMENSION(:), &
          POINTER                                         :: particle_set
-      TYPE(dft_control_type), POINTER          :: dft_control
-      TYPE(cp_para_env_type), POINTER                             :: para_env
-      INTEGER                                   :: nelectron_total
+      TYPE(dft_control_type), POINTER                    :: dft_control
+      TYPE(cp_para_env_type), POINTER                    :: para_env
+      INTEGER                                            :: nelectron_total
       TYPE(section_vals_type), POINTER                   :: ri_section
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       INTEGER                                            :: unit_nr
@@ -351,6 +350,10 @@ CONTAINS
          opt_dfet_mat%max_step_len = 3.0_dp*opt_dfet_mat%trust_rad
          opt_dfet_mat%min_step_len = 1.0*opt_dfet_mat%trust_rad
       Endif
+      ! Array to store functional values
+      ALLOCATE (opt_dfet_mat%w_func(opt_dfet_mat%n_iter))
+      opt_dfet_mat%w_func = 0.0_dp
+      opt_dfet_mat%dfet_mat_corr = 0.0_dp
 
       ! Allocate max_diff and int_diff
       diff_size = 1
@@ -473,9 +476,13 @@ CONTAINS
          hf_fraction = 1.0_dp
       
          ! Compute the gradient in HFX-like update
+         write(*,*) 'rho_ao_2d', associated(rho_ao_2d)
+         write(*,*) 'mat_2d', associated(mat_2d)
+         write(*,*) 'before update, step'
          CALL hfx_ri_update_ks(qs_env=qs_env, ri_data=opt_dfet_mat%ri_data, ks_matrix=mat_2d, ehfx=ehfx, &
                                rho_ao=rho_ao_2d, geometry_did_change = geometry_did_change, nspins=nspins, &
                                hf_fraction=hf_fraction)
+         write(*,*) 'after update, step'
          ! Copy from auxiliary structure to gradient
          DO ispin = 1, nspins
             CALL dbcsr_copy(gradient(ispin)%matrix, mat_2d(ispin, 1)%matrix)
@@ -598,25 +605,6 @@ CONTAINS
 
    END SUBROUTINE cg_backtrack
 
-   SUBROUTINE Polak_Ribiere(gradient, prev_dir, dir, beta, nspins)
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: gradient, prev_dir, dir
-      REAL(KIND=dp), DIMENSION(:),ALLOCATABLE            :: beta
-      INTEGER                                            :: ispin, nspins
-      REAL(kind=dp)                                      :: denom, numer
-
-      opt_step = -opt_dfet_mat%trust_rad
-      DO ispin = 1, nspins
-         CALL dbcsr_copy(opt_dfet_mat%v_mat(ispin)%matrix, opt_dfet_mat%prev_v_mat(ispin)%matrix)
-         CALL dbcsr_add(opt_dfet_mat%v_mat(ispin)%matrix, opt_dfet_mat%prev_grad(ispin)%matrix, &
-                          alpha_scalar=1.0_dp, beta_scalar=opt_step)
-         ! Save direction and step
-         CALL dbcsr_copy(opt_dfet_mat%prev_dir(ispin)%matrix, opt_dfet_mat%prev_grad(ispin)%matrix)
-         CALL dbcsr_scale(opt_dfet_mat%prev_dir(ispin)%matrix, -1.0_dp)
-         CALL dbcsr_copy(opt_dfet_mat%prev_step(ispin)%matrix, opt_dfet_mat%prev_dir(ispin)%matrix)
-         CALL dbcsr_scale(opt_dfet_mat%prev_step(ispin)%matrix, opt_step)
-      ENDDO
-
-   END SUBROUTINE cg_backtrack
 
    SUBROUTINE Polak_Ribiere(gradient, prev_dir, dir, beta, nspins)
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: gradient, prev_dir, dir
@@ -698,6 +686,7 @@ CONTAINS
       !
       zero_pot = .FALSE.
       geometry_did_change = .FALSE.
+      write(*,*) 'read_embed_pot_mat', opt_dfet_mat%read_embed_pot_mat
       If (step .EQ. 1) then
          If (.NOT. opt_dfet_mat%read_embed_pot_mat) then
              zero_pot = .TRUE.
@@ -747,10 +736,12 @@ CONTAINS
           ! Some settings
           hf_fraction = 1.0_dp
 
-          ! Compute the term with HFX-like update
+          ! Compute the term with HFX-like update 
+          write(*,*) 'Came to update?, ks_mat'
           CALL hfx_ri_update_ks(qs_env=qs_env_ref, ri_data=opt_dfet_mat%ri_data, ks_matrix=mat_2d, ehfx=ehfx, &
                                 rho_ao=rho_ao_2d, geometry_did_change = geometry_did_change, nspins=nspins, &
                                 hf_fraction=hf_fraction)
+          write(*,*) 'Made the update?, ks_mat'
           DO ispin = 1, nspins
 
              ! Special case of a closed-shell subsystem in an open-shell embedding: matrix potential
@@ -785,8 +776,7 @@ CONTAINS
             ! find atomic contributions to dfet_mat_term
             CALL mulliken_pot_partitioning(qs_env_ref,&
                  opt_dfet_mat%dfet_mat_term, output_unit, 1, opt_dfet_mat%reduce_dfet_mat,&
-                 opt_dfet_mat%reduce_thresh, opt_dfet_mat%i_iter, .FALSE., &
-                 opt_dfet_mat%real_atoms)
+                 opt_dfet_mat%reduce_thresh, opt_dfet_mat%i_iter, opt_dfet_mat%real_atoms)
  
             CALL get_qs_env(qs_env_ref, rho=rho_ref, ks_env=ks_env_ref, dft_control=dft_control_ref)
             CALL qs_rho_get(rho_ref, rho_ao=rho_ao_ref)

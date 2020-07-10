@@ -2322,6 +2322,7 @@ CONTAINS
             ENDIF
          ENDIF
 
+         WRITE (*, *) 'iterations = ', i_iter
          ! Loop over force evaluations
          DO i_force_eval = 1, ref_subsys_number - 1
             WRITE (*, *) 'force_eval = ', i_force_eval
@@ -2392,6 +2393,7 @@ CONTAINS
          ENDDO ! i_force_eval
 
          ! Calculate the Wu-Yang functional
+         write(*,*) 'dfet_mat_corr', opt_dfet_mat%dfet_mat_corr
          opt_dfet_mat%w_func(i_iter) = opt_dfet_mat%w_func(i_iter) - opt_dfet_mat%dfet_mat_corr
          WRITE (*, *) 'W = ', opt_dfet_mat%w_func(i_iter)
 
@@ -2428,7 +2430,7 @@ CONTAINS
          ! Find atomic contributions to matrix potential term
          CALL mulliken_pot_partitioning(force_env%sub_force_env(ref_subsys_number)%force_env%qs_env,&
                                      opt_dfet_mat%dfet_mat_term, output_unit, 1, opt_dfet_mat%reduce_dfet_mat,&
-                                     opt_dfet_mat%reduce_thresh, opt_dfet_mat%i_iter, .TRUE.,&
+                                     opt_dfet_mat%reduce_thresh, opt_dfet_mat%i_iter,& 
                                      opt_dfet_mat%real_atoms)
 
          ! Substitute the correct energy in energies: only on rank 0

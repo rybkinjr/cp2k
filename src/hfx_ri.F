@@ -566,7 +566,7 @@ CONTAINS
       unit_nr = ri_data%unit_nr
 
       CALL get_qs_env(qs_env, para_env=para_env, blacs_env=blacs_env)
-
+      
       CALL timeset(routineN//"_int", handle2)
       CALL hfx_ri_pre_scf_calc_tensors(qs_env, ri_data, t_2c_op_RI, t_2c_op_pot, t_3c_int_1)
 
