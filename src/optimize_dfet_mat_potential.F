@@ -197,8 +197,8 @@ CONTAINS
 
    SUBROUTINE overlap_ri_init(ri_data, ri_section, qs_kind_set, &
                             particle_set, atomic_kind_set, dft_control, para_env, nelectron_total, unit_nr)
-      TYPE(hfx_ri_type), INTENT(INOUT)                   :: ri_data
-      !TYPE(hfx_type)                       :: x_data
+      TYPE(hfx_ri_type), POINTER                         :: ri_data
+ !     TYPE(hfx_type)                       :: x_data
       TYPE(section_vals_type), POINTER                   :: ri_section
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
@@ -212,24 +212,36 @@ CONTAINS
 
       CHARACTER(LEN=default_string_length)               :: orb_basis_type, ri_basis_type
       INTEGER                                            :: handle, unit_nr, unit_nr_dbcsr
-      TYPE(section_vals_type), POINTER                   :: hf_sub_section
+      !TYPE(section_vals_type), POINTER                   :: hf_sub_section
+      TYPE(cp_logger_type), POINTER                      :: logger
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (hf_sub_section)
-
       ! Temprorary here
+      NULLIFY (ri_data)
+      ALLOCATE (ri_data)
       ri_data%hfx_pot%omega = 0.0_dp
       ri_data%hfx_pot%cutoff_radius = 0.0_dp
       ri_data%eps_schwarz = 0.0_dp
 
-      ASSOCIATE (hfx_pot=>ri_data%hfx_pot)
+      !ASSOCIATE (hfx_pot=>ri_data%hfx_pot)
+       !  hfx_pot%potential_type = x_data%potential_parameter%potential_type
+       !  hfx_pot%omega = x_data%potential_parameter%omega
+       !  hfx_pot%cutoff_radius = x_data%potential_parameter%cutoff_radius
+      !END ASSOCIATE
+      ri_data%ri_section => ri_section
+      !ri_data%hfx_section => hfx_section
+      !ri_data%eps_schwarz = x_data%screening_parameter%eps_schwarz
+
+      logger => cp_get_default_logger()
+      unit_nr_dbcsr = cp_print_key_unit_nr(logger, ri_data%ri_section, "RI_INFO", &
+                                           extension=".dbcsrLog")
+      !ASSOCIATE (hfx_pot=>ri_data%hfx_pot)
          ! Set by force: potential is identity
-         hfx_pot%potential_type = do_potential_id
+         !hfx_pot%potential_type = do_potential_id
          !hfx_pot%omega = x_data%potential_parameter%omega
          !hfx_pot%cutoff_radius = x_data%potential_parameter%cutoff_radius
-      END ASSOCIATE
-      ri_data%ri_section => ri_section
+      !END ASSOCIATE
       !ri_data%eps_schwarz = x_data%screening_parameter%eps_schwarz
 
       unit_nr_dbcsr = 0
@@ -460,7 +472,7 @@ CONTAINS
             CALL dbcsr_init_p(mat_2d(ispin, 1)%matrix)
             CALL dbcsr_create(mat_2d(ispin, 1)%matrix, template=gradient(ispin)%matrix)
             CALL dbcsr_copy(mat_2d(ispin, 1)%matrix, gradient(ispin)%matrix)
-            ! DM difference serve as rho_ao
+            ! DM differences serve as rho_ao
             ALLOCATE (rho_ao_2d(ispin, 1)%matrix)
             CALL dbcsr_init_p(rho_ao_2d(ispin, 1)%matrix)
             CALL dbcsr_create(rho_ao_2d(ispin, 1)%matrix, template=opt_dfet_mat%p_diff(ispin)%matrix)
@@ -474,11 +486,15 @@ CONTAINS
              geometry_did_change = .TRUE.
          Endif
          hf_fraction = 1.0_dp
+         write(*,*) 'Geometry did change?', geometry_did_change
       
          ! Compute the gradient in HFX-like update
          write(*,*) 'rho_ao_2d', associated(rho_ao_2d)
+         write(*,*) dbcsr_frobenius_norm(rho_ao_2d(1,1)%matrix)
          write(*,*) 'mat_2d', associated(mat_2d)
+         write(*,*) dbcsr_frobenius_norm(mat_2d(1,1)%matrix)
          write(*,*) 'before update, step'
+         ehfx = 0.0_dp
          CALL hfx_ri_update_ks(qs_env=qs_env, ri_data=opt_dfet_mat%ri_data, ks_matrix=mat_2d, ehfx=ehfx, &
                                rho_ao=rho_ao_2d, geometry_did_change = geometry_did_change, nspins=nspins, &
                                hf_fraction=hf_fraction)

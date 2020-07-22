@@ -568,7 +568,9 @@ CONTAINS
       CALL get_qs_env(qs_env, para_env=para_env, blacs_env=blacs_env)
       
       CALL timeset(routineN//"_int", handle2)
+      write(*,*) 'came to hfx_ri_pre_scf_calc_tensors'
       CALL hfx_ri_pre_scf_calc_tensors(qs_env, ri_data, t_2c_op_RI, t_2c_op_pot, t_3c_int_1)
+      write(*,*) 'came after hfx_ri_pre_scf_calc_tensors'
 
       CALL dbcsr_t_copy(t_3c_int_1(1, 1), ri_data%t_3c_int_ctr_3(1, 1), order=[1, 2, 3], move_data=.TRUE.)
 

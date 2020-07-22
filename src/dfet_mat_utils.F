@@ -43,6 +43,9 @@ MODULE dfet_mat_utils
    USE qs_rho_types,                    ONLY: qs_rho_get,&
                                               qs_rho_type
    USE scf_control_types,               ONLY: scf_control_type
+   USE particle_list_types,             ONLY: particle_list_type
+   USE qs_subsys_types,                 ONLY: qs_subsys_get,&
+                                              qs_subsys_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -172,7 +175,8 @@ MODULE dfet_mat_utils
       END IF
 
       ! Reduce potential
-      If (do_reduce) CALL reduce_potential(qs_env, v_mat, atom_cont, natom, thresh, real_atoms, i_iter)
+      If (do_reduce) CALL reduce_potential(qs_env, v_mat, atom_cont, natom, thresh,&
+                          real_atoms, output_unit, i_iter)
       write(*,*) 'atom_cont_outside', atom_cont
 
       ! Release stuff
@@ -344,9 +348,9 @@ MODULE dfet_mat_utils
    END SUBROUTINE write_pot_cont
 
 
-   SUBROUTINE reduce_potential(qs_env, v_mat, atom_cont, natom, thresh, real_atoms, i_iter)
+   SUBROUTINE reduce_potential(qs_env, v_mat, atom_cont, natom, thresh, real_atoms, output_unit, i_iter)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      !INTEGER, INTENT(IN)                                :: output_unit
+      INTEGER, INTENT(IN)                                :: output_unit
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'mulliken_pot_partitioning', &
          routineP = moduleN//':'//routineN
@@ -360,7 +364,7 @@ MODULE dfet_mat_utils
       REAL(KIND=dp), DIMENSION(:)                        :: atom_cont
       INTEGER(KIND=dp), DIMENSION(:), ALLOCATABLE        :: red_atom_list
       REAL(KIND=dp), DIMENSION(:,:), ALLOCATABLE         :: unit_block
-      INTEGER, DIMENSION(:), ALLOCATABLE                 :: atom_mask
+      INTEGER, DIMENSION(:), ALLOCATABLE                 :: atom_mask, real_atom_mask
       INTEGER                                            :: reduced_dim
       INTEGER                                            :: unit_size, start_row, start_col
       TYPE(cp_fm_type), POINTER                          :: Pt, VPt, PVPt
@@ -369,15 +373,23 @@ MODULE dfet_mat_utils
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
       INTEGER, DIMENSION(:)                              :: real_atoms
 
+      write(*,*) 'i_iter', i_iter
+
       CALL timeset(routineN, handle)
-      ! Find the new, reduced atom list with significant contributions
+      ! Find the new, reduced atom list with significant contributions:
+      ! real atoms of the subsystem must be forcefully included
       ALLOCATE(atom_mask(natom))
+      ALLOCATE(real_atom_mask(natom))
+      real_atom_mask = 0
+      DO iatom = 1, size(real_atoms)
+         real_atom_mask(real_atoms(iatom)) = 1
+      ENDDO
       atom_mask = 0
       red_num_atom = 0
       pot_total = sum(atom_cont)
       write(*,*) 'thresh', thresh, 'pot_total', pot_total, 'atom_cont', atom_cont
       DO iatom = 1, natom
-         If ((atom_cont(iatom)/pot_total) .GE. thresh) then
+         If (((atom_cont(iatom)/pot_total) .GE. thresh) .OR. (real_atom_mask(iatom) .EQ. 1)) then
             red_num_atom = red_num_atom + 1
             atom_mask(iatom) = 1
          Endif
@@ -445,8 +457,12 @@ MODULE dfet_mat_utils
      ! Dense by dense: P*V*P^t
      CALL cp_gemm('T', 'N', reduced_dim, reduced_dim, nao, 1.0_dp, Pt, VPt, 0.0_dp, PVPt)
 
+     ! Print coordinates for stand-alone calculation
+     CALL print_coord_for_standalone(qs_env, atom_mask, real_atom_mask, output_unit)
+
       ! Deallocate
       DEALLOCATE(atom_mask)
+      DEALLOCATE(real_atom_mask)
       DEALLOCATE(full_ind)
       DEALLOCATE(red_ind)
 
@@ -460,9 +476,6 @@ MODULE dfet_mat_utils
          DEALLOCATE (red_atom_list)
       END IF
       CALL timestop(handle)
-
-      !!!! Remove by DEBUG
-      If (size(real_atoms) .GT. 0) write(*,*) i_iter
 
    END SUBROUTINE reduce_potential
 
@@ -519,8 +532,42 @@ MODULE dfet_mat_utils
 
    END SUBROUTINE find_reduced_basis_size
 
-  ! SUBROUTINE given_dfet_mat_potential
+   SUBROUTINE print_coord_for_standalone(qs_env, atom_mask, real_atom_mask, output_unit)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      TYPE(particle_list_type), POINTER                  :: particles
+      TYPE(qs_subsys_type), POINTER                      :: subsys
+      INTEGER, DIMENSION(:)                              :: atom_mask, real_atom_mask
+      CHARACTER(LEN=2), ALLOCATABLE, DIMENSION(:)        :: particles_el
+      INTEGER                                            :: iat, n, output_unit
 
-  ! END SUBROUTINE given_dfet_mat_potential
+      CALL get_qs_env(qs_env=qs_env, subsys=subsys)
+      CALL qs_subsys_get(subsys=subsys, particles=particles)
+
+      ! Prepare the file
+      IF (output_unit > 0) THEN
+          WRITE (UNIT=output_unit, FMT="(T22,A)") "Coordinates for stand-alone embedded calculation"
+
+         n = particles%n_els
+         ALLOCATE (particles_el(n))
+         DO iat = 1, n
+            CALL get_atomic_kind(particles%els(iat)%atomic_kind, element_symbol=particles_el(iat))
+         END DO
+
+         ! Print coordinates only of the included atoms to file
+         DO iat = 1, SIZE(particles_el)
+            If (atom_mask(iat) .EQ. 1) then ! Is atom included?
+               If (real_atom_mask(iat) .EQ. 1) then ! Is it real?
+                  WRITE (output_unit, '(a4,4f12.6)') particles_el(iat), particles%els(iat)%r(:)
+               Else ! Ghost
+                  WRITE (output_unit, '(a2,a8,4f12.6)') particles_el(iat),'_ghost', particles%els(iat)%r(:)
+               Endif
+            ENDIF
+         ENDDO
+
+         DEALLOCATE (particles_el)
+
+      ENDIF ! Should output
+
+   END SUBROUTINE print_coord_for_standalone
 
 END MODULE dfet_mat_utils

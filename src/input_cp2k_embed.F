@@ -60,7 +60,7 @@ CONTAINS
       NULLIFY (keyword, subsection)
 
       CALL keyword_create(keyword, __LOCATION__, name="EMBED_METHOD", &
-                          description="Select DFET or DMFET.", &
+                          description="Select DFET, DFET_MAT OR DMFET.", &
                           usage="EMBED_METHOD DFET", &
                           default_i_val=dfet, &
                           enum_c_vals=s2a("DFET", "DMFET", "DFET_MAT"), &

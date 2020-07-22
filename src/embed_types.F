@@ -114,7 +114,7 @@ MODULE embed_types
       INTEGER                                   :: n_iter, i_iter, last_accepted
       INTEGER, ALLOCATABLE, DIMENSION(:)        :: all_nspins
       INTEGER, DIMENSION(:), POINTER            :: real_atoms
-      TYPE(hfx_ri_type)                         :: ri_data
+      TYPE(hfx_ri_type), POINTER                :: ri_data
 
    END TYPE opt_dfet_mat_pot_type
 

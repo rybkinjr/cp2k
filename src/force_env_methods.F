@@ -1617,6 +1617,8 @@ CONTAINS
                          force_env_section=force_env_section)
       embed_section => section_vals_get_subs_vals(force_env_section, "EMBED")
 
+      write(*,*) 'ref_subsys_number', ref_subsys_number
+
       CALL section_vals_val_get(embed_section, "EMBED_METHOD", i_val=embed_method)
       SELECT CASE (embed_method)
       CASE (dfet)
