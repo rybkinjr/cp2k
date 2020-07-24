@@ -119,7 +119,7 @@ MODULE optimize_dfet_mat_potential
 
    PUBLIC :: prepare_dfet_mat_opt, release_dfet_mat_opt,  check_dfet_mat, dfet_mat_opt_step, &
              release_dfet_mat_term, dfet_mat_ks_matrix, print_dfet_mat_opt_info,&
-             print_dfet_mat_restart, given_dfet_mat_pot
+             print_dfet_mat, given_dfet_mat_pot
 
 CONTAINS
 
@@ -224,11 +224,6 @@ CONTAINS
       ri_data%hfx_pot%cutoff_radius = 0.0_dp
       ri_data%eps_schwarz = 0.0_dp
 
-      !ASSOCIATE (hfx_pot=>ri_data%hfx_pot)
-       !  hfx_pot%potential_type = x_data%potential_parameter%potential_type
-       !  hfx_pot%omega = x_data%potential_parameter%omega
-       !  hfx_pot%cutoff_radius = x_data%potential_parameter%cutoff_radius
-      !END ASSOCIATE
       ri_data%ri_section => ri_section
       !ri_data%hfx_section => hfx_section
       !ri_data%eps_schwarz = x_data%screening_parameter%eps_schwarz
@@ -236,12 +231,12 @@ CONTAINS
       logger => cp_get_default_logger()
       unit_nr_dbcsr = cp_print_key_unit_nr(logger, ri_data%ri_section, "RI_INFO", &
                                            extension=".dbcsrLog")
-      !ASSOCIATE (hfx_pot=>ri_data%hfx_pot)
+      ASSOCIATE (hfx_pot=>ri_data%hfx_pot)
          ! Set by force: potential is identity
-         !hfx_pot%potential_type = do_potential_id
+         hfx_pot%potential_type = do_potential_id
          !hfx_pot%omega = x_data%potential_parameter%omega
          !hfx_pot%cutoff_radius = x_data%potential_parameter%cutoff_radius
-      !END ASSOCIATE
+      END ASSOCIATE
       !ri_data%eps_schwarz = x_data%screening_parameter%eps_schwarz
 
       unit_nr_dbcsr = 0
@@ -785,8 +780,10 @@ CONTAINS
           ENDDO
 
           ! Since the ks matrix term is the same for all systems, we compute its trace with reference
-          ! density matrix here, only with one force_eval
+          ! density matrix here, only with one force_eval and print it only once
           If (i_force_eval .EQ. 1) then
+            ! Print the embedding KS matrix term
+            CALL print_dfet_mat(qs_env, opt_dfet_mat, opt_dfet_mat%i_iter, .False., 'term')
    
             ! Likewise, partitioning should be done for one subsystem:
             ! find atomic contributions to dfet_mat_term
@@ -851,7 +848,7 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief ...
 ! **************************************************************************************************
-   SUBROUTINE print_dfet_mat_restart(qs_env, opt_dfet_mat, i_iter, final_one)
+   SUBROUTINE print_dfet_mat(qs_env, opt_dfet_mat, i_iter, final_one, mat_type)
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(opt_dfet_mat_pot_type)                        :: opt_dfet_mat
       INTEGER                                            :: nao
@@ -866,6 +863,8 @@ CONTAINS
       INTEGER                                            :: unit_nr
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(section_vals_type), POINTER                   :: input
+      CHARACTER(LEN=4)                                   :: mat_type
+      CHARACTER(LEN=8)                                   :: headline
 
       NULLIFY (input)
       CALL get_qs_env(qs_env=qs_env, input=input)
@@ -887,18 +886,24 @@ CONTAINS
                                   nrow_global=nao, ncol_global=nao)
             NULLIFY (dfet_mat_pot)
             CALL cp_fm_create(dfet_mat_pot, fm_struct, name="dfet_mat_pot")
-            CALL copy_dbcsr_to_fm(opt_dfet_mat%v_mat(1)%matrix, dfet_mat_pot)
+            IF (mat_type .EQ. 'pot ') CALL copy_dbcsr_to_fm(opt_dfet_mat%v_mat(1)%matrix, dfet_mat_pot)
+            IF (mat_type .EQ. 'term') CALL copy_dbcsr_to_fm(opt_dfet_mat%dfet_mat_term(1)%matrix, dfet_mat_pot)
             If (opt_dfet_mat%open_shell_embed) then
                NULLIFY (dfet_mat_pot_beta)
                CALL cp_fm_create(dfet_mat_pot_beta, fm_struct, name="dfet_mat_pot_beta")
-               CALL copy_dbcsr_to_fm(opt_dfet_mat%v_mat(2)%matrix, dfet_mat_pot_beta)
+               IF (mat_type .EQ. 'pot ') CALL copy_dbcsr_to_fm(opt_dfet_mat%v_mat(2)%matrix, dfet_mat_pot_beta)
+               IF (mat_type .EQ. 'term') CALL copy_dbcsr_to_fm(opt_dfet_mat%dfet_mat_term(2)%matrix, dfet_mat_pot_beta)
             Endif
             
+            ! Make the names
+            IF (mat_type .EQ. 'pot ') headline = 'mat_pot_'
+            IF (mat_type .EQ. 'term') headline = 'ks_term_'
+
             ! Now, write it
             IF (.NOT. final_one) THEN
-               WRITE (filename, '(a10,I3.3)') "mat_pot_", i_iter
+               WRITE (filename, '(a10,I3.3)') headline, i_iter
             ELSE
-               WRITE (filename, '(a10,I3.3)') "mat_pot"
+               WRITE (filename, '(a10,I3.3)') headline
             ENDIF
             unit_nr = cp_print_key_unit_nr(logger, input, "DFT%QS%OPT_DFET_MAT%EMBED_POT_MAT", extension=".wfn", &
                                      file_form="UNFORMATTED", middle_name=TRIM(filename), file_position="REWIND")
@@ -916,7 +921,7 @@ CONTAINS
 
          ENDIF ! Should output
 
-   END SUBROUTINE print_dfet_mat_restart
+   END SUBROUTINE print_dfet_mat
 
 ! **************************************************************************************************
 !> \brief Read the embedding potential from the binary file
@@ -1193,13 +1198,6 @@ CONTAINS
 
       ENDIF ! Unit
 
-      IF ((opt_dfet_mat%converged) .AND. (output_unit > 0)) THEN
-         WRITE (UNIT=output_unit, FMT="(/,T2,A)") REPEAT("*", 79)
-         WRITE (UNIT=output_unit, FMT="(T2,A,T25,A,T78,A)") &
-            "***", "EMBEDDING POTENTIAL OPTIMIZATION COMPLETED", "***"
-         WRITE (UNIT=output_unit, FMT="(T2,A)") REPEAT("*", 79)
-      END IF
-
       If (.NOT. dft_control%qs_control%gapw) then
          DEALLOCATE (local_max_diff)
          DEALLOCATE (local_int_diff)
@@ -1219,79 +1217,12 @@ CONTAINS
          opt_dfet_mat%converged = .FALSE.
       ENDIF
 
-      ! Print the information
-      IF (output_unit > 0) THEN
-         WRITE (UNIT=output_unit, FMT="(/,T2,A)") &
-            " Convergence check :"
-
-         ! Maximum value of density
-         WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
-            " Maximum gradient element            = ", diff_max
-         WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
-            " Convergence limit for max. gradient = ", opt_dfet_mat%conv_max
-
-         IF (conv_max_diff) THEN
-            WRITE (UNIT=output_unit, FMT="(T2,2A)") &
-               " Convergence in max. gradient =     ", &
-               "             YES"
-         ELSE
-            WRITE (UNIT=output_unit, FMT="(T2,2A)") &
-               " Convergence in max. gradient =     ", &
-               "              NO"
-         END IF
-
-         ! Frobenius abs. value of density
-         WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
-            " Frobenius norm of gradient difference      = ", diff_int
-         WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
-            " Conv. limit for Frobenius norm of gradient = ", opt_dfet_mat%conv_int
-
-         IF (conv_int_diff) THEN
-            WRITE (UNIT=output_unit, FMT="(T2,2A)") &
-               " Convergence in Frobenius norm of gradient =     ", &
-               "             YES"
-         ELSE
-            WRITE (UNIT=output_unit, FMT="(T2,2A)") &
-               " Convergence in Frobenius norm of gradient =     ", &
-               "              NO"
-         END IF
-
-         ! Additional information for GPW case
-         If (.NOT. dft_control%qs_control%gapw) then
-            ! Maximum value of density
-            WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
-               " Maximum density difference                = ", local_max_diff(1)
- 
-            IF (opt_dfet_mat%open_shell_embed) THEN
- 
-               WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
-                  " Maximum density difference, beta spin      = ", local_max_diff(2)
- 
-            ENDIF
- 
-            ! Integrated abs. value of density
-            WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
-               " Integrated density difference             = ", local_int_diff(1)
-            IF (opt_dfet_mat%open_shell_embed) THEN
-               WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
-                  " Integrated density difference, beta spin   = ", local_int_diff(2)
-            ENDIF
- 
-         ENDIF ! GAPW
-
-      ENDIF ! Unit
-
       IF ((opt_dfet_mat%converged) .AND. (output_unit > 0)) THEN
          WRITE (UNIT=output_unit, FMT="(/,T2,A)") REPEAT("*", 79)
          WRITE (UNIT=output_unit, FMT="(T2,A,T25,A,T78,A)") &
             "***", "EMBEDDING POTENTIAL OPTIMIZATION COMPLETED", "***"
          WRITE (UNIT=output_unit, FMT="(T2,A)") REPEAT("*", 79)
       END IF
-
-      If (.NOT. dft_control%qs_control%gapw) then
-         DEALLOCATE (local_max_diff)
-         DEALLOCATE (local_int_diff)
-      ENDIF
 
    END SUBROUTINE check_dfet_mat
 ! **************************************************************************************************

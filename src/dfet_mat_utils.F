@@ -19,9 +19,11 @@ MODULE dfet_mat_utils
    USE cp_fm_types,                     ONLY: cp_fm_create,&
                                               cp_fm_get_diag,&
                                               cp_fm_release,&
+                                              cp_fm_p_type,&
                                               cp_fm_set_all,&
                                               cp_fm_type,&
-                                              cp_fm_set_submatrix
+                                              cp_fm_set_submatrix,&
+                                              cp_fm_write_unformatted
    USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE dbcsr_api,                       ONLY: &
@@ -29,6 +31,7 @@ MODULE dfet_mat_utils
         dbcsr_iterator_next_block, dbcsr_iterator_start, dbcsr_iterator_stop, dbcsr_iterator_type, &
         dbcsr_p_type, dbcsr_set, dbcsr_setname, dbcsr_type, dbcsr_get_info
    USE kinds,                           ONLY: default_string_length,&
+                                              default_path_length,&
                                               dp
    USE machine,                         ONLY: m_flush
    USE message_passing,                 ONLY: mp_sum
@@ -46,6 +49,16 @@ MODULE dfet_mat_utils
    USE particle_list_types,             ONLY: particle_list_type
    USE qs_subsys_types,                 ONLY: qs_subsys_get,&
                                               qs_subsys_type
+   USE physcon,                         ONLY: angstrom
+   USE cp_log_handling,                 ONLY: cp_get_default_logger,&
+                                              cp_logger_type
+   USE input_section_types,             ONLY: section_vals_type
+   USE cp_output_handling,              ONLY: cp_p_file,&
+                                              cp_print_key_finished_output,&
+                                              cp_print_key_should_output,&
+                                              cp_print_key_unit_nr
+   USE cp_files,                        ONLY: close_file,&
+                                              open_file
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -356,7 +369,7 @@ MODULE dfet_mat_utils
          routineP = moduleN//':'//routineN
 
       INTEGER                                            :: handle, iatom, natom, i
-      INTEGER                                            :: nao, i_iter
+      INTEGER                                            :: nao, i_iter, ispin, nspins
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: v_mat
       REAL(KIND=dp)                                      :: thresh, pot_total
@@ -367,7 +380,8 @@ MODULE dfet_mat_utils
       INTEGER, DIMENSION(:), ALLOCATABLE                 :: atom_mask, real_atom_mask
       INTEGER                                            :: reduced_dim
       INTEGER                                            :: unit_size, start_row, start_col
-      TYPE(cp_fm_type), POINTER                          :: Pt, VPt, PVPt
+      TYPE(cp_fm_type), POINTER                          :: Pt, VPt
+      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: PVPt
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       INTEGER, ALLOCATABLE, DIMENSION(:,:)               :: full_ind, red_ind
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
@@ -430,14 +444,21 @@ MODULE dfet_mat_utils
      CALL cp_fm_create(VPt, fm_struct, name="pot_projector")
      CALL cp_fm_set_all(VPt, 0.0_dp)
      CALL cp_fm_struct_release(fm_struct)
+
+     ! Find out nspins
+     nspins = size(v_mat)
+
      ! V_reduced = P*V*P^t: reduced potential in full matrix format
      NULLIFY (fm_struct)
      CALL cp_fm_struct_create(fm_struct, para_env=para_env, context=blacs_env, &
                                   nrow_global=reduced_dim, ncol_global=reduced_dim)
-     NULLIFY (PVPt)
-     CALL cp_fm_create(PVPt, fm_struct, name="v_red")
+     ALLOCATE(PVPT(nspins))
+     DO ispin = 1, nspins
+       NULLIFY(PVPT(ispin)%matrix)
+       CALL cp_fm_create(PVPt(ispin)%matrix, fm_struct, name="v_red")
+       CALL cp_fm_set_all(PVPt(ispin)%matrix, 0.0_dp)
+     ENDDO
      CALL cp_fm_struct_release(fm_struct)
-     CALL cp_fm_set_all(PVPt, 0.0_dp)
 
      ! Fill in the projector (transpose)
      DO iatom = 1, red_num_atom
@@ -450,12 +471,21 @@ MODULE dfet_mat_utils
         start_row = full_ind(iatom, 1)
         start_col = red_ind(iatom, 1)
         CALL cp_fm_set_submatrix(Pt, unit_block, start_row, start_col, unit_size, unit_size)
+        DEALLOCATE(unit_block)
      END DO
-     write(*,*) 'projector', Pt%local_data(:,:)
-     ! Multiply, first sparse by dense: V*P^t
-     CALL cp_dbcsr_sm_fm_multiply(v_mat(1)%matrix, Pt, VPt, ncol=nao)
-     ! Dense by dense: P*V*P^t
-     CALL cp_gemm('T', 'N', reduced_dim, reduced_dim, nao, 1.0_dp, Pt, VPt, 0.0_dp, PVPt)
+     DO i = 1, nao
+        write(*,*) 'projector', Pt%local_data(i,:)
+     ENDDO
+
+     DO ispin = 1, nspins
+        ! Multiply, first sparse by dense: V*P^t
+        CALL cp_dbcsr_sm_fm_multiply(v_mat(ispin)%matrix, Pt, VPt, ncol=reduced_dim)
+        ! Dense by dense: P*V*P^t
+        CALL cp_gemm('T', 'N', reduced_dim, reduced_dim, nao, 1.0_dp, Pt, VPt, 0.0_dp, PVPt(ispin)%matrix)
+     ENDDO
+
+     ! Print reduced potential
+     CALL print_reduced_ks_term(qs_env, PVPt, i_iter)
 
      ! Print coordinates for stand-alone calculation
      CALL print_coord_for_standalone(qs_env, atom_mask, real_atom_mask, output_unit)
@@ -468,7 +498,10 @@ MODULE dfet_mat_utils
 
       CALL cp_fm_release(Pt)
       CALL cp_fm_release(VPt)
-      CALL cp_fm_release(PVPt)
+      DO ispin = 1, nspins
+         CALL cp_fm_release(PVPt(ispin)%matrix)
+      ENDDO
+      DEALLOCATE(PVPt)
 
       CALL cp_blacs_env_release(blacs_env)
 
@@ -557,9 +590,11 @@ MODULE dfet_mat_utils
          DO iat = 1, SIZE(particles_el)
             If (atom_mask(iat) .EQ. 1) then ! Is atom included?
                If (real_atom_mask(iat) .EQ. 1) then ! Is it real?
-                  WRITE (output_unit, '(a4,4f12.6)') particles_el(iat), particles%els(iat)%r(:)
+                  WRITE (output_unit, '(a4,4f12.6)') &
+                        particles_el(iat), particles%els(iat)%r(:)*angstrom
                Else ! Ghost
-                  WRITE (output_unit, '(a2,a8,4f12.6)') particles_el(iat),'_ghost', particles%els(iat)%r(:)
+                  WRITE (output_unit, '(a3,a,4f12.6)') trim(particles_el(iat)), &
+                        adjustl('_ghost'), particles%els(iat)%r(:)*angstrom
                Endif
             ENDIF
          ENDDO
@@ -569,5 +604,40 @@ MODULE dfet_mat_utils
       ENDIF ! Should output
 
    END SUBROUTINE print_coord_for_standalone
+
+
+
+   SUBROUTINE print_reduced_ks_term(qs_env, term_to_print, i_iter)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      INTEGER                                            :: i_iter
+      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: term_to_print
+      CHARACTER(LEN=default_path_length)                 :: filename 
+      INTEGER                                            :: unit_nr
+      TYPE(cp_logger_type), POINTER                      :: logger
+      TYPE(section_vals_type), POINTER                   :: input
+      INTEGER                                            :: ispin
+
+      NULLIFY (input)
+      CALL get_qs_env(qs_env=qs_env, input=input)
+
+      ! We print an unformatted file
+         logger => cp_get_default_logger()
+         IF (BTEST(cp_print_key_should_output(logger%iter_info, input, &
+                                              "DFT%QS%OPT_DFET_MAT%EMBED_POT_MAT"), cp_p_file)) THEN
+ 
+            ! Now, write it
+            WRITE (filename, '(a12,I3.3)') 'red_ks_term_', i_iter
+            unit_nr = cp_print_key_unit_nr(logger, input, "DFT%QS%OPT_DFET_MAT%EMBED_POT_MAT", extension=".wfn", &
+                                     file_form="UNFORMATTED", middle_name=TRIM(filename), file_position="REWIND")
+            DO ispin = 1, size(term_to_print)
+               CALL cp_fm_write_unformatted(term_to_print(ispin)%matrix, unit_nr)
+            ENDDO
+            IF (unit_nr > 0) THEN
+               CALL close_file(unit_nr)
+            ENDIF
+
+         ENDIF ! Should output
+
+   END SUBROUTINE print_reduced_ks_term
 
 END MODULE dfet_mat_utils

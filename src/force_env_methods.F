@@ -131,7 +131,7 @@ MODULE force_env_methods
                                               print_dfet_mat_opt_info,&
                                               release_dfet_mat_opt,&
                                               release_dfet_mat_term,&
-                                              print_dfet_mat_restart
+                                              print_dfet_mat
    USE optimize_dmfet_potential,        ONLY: build_full_dm,&
                                               check_dmfet,&
                                               prepare_dmfet_opt,&
@@ -2403,8 +2403,8 @@ CONTAINS
          CALL dfet_mat_opt_step(opt_dfet_mat, force_env%sub_force_env(ref_subsys_number)%force_env%qs_env, i_iter)
 
          ! Print potential for restart
-         CALL print_dfet_mat_restart(force_env%sub_force_env(ref_subsys_number)%force_env%qs_env,&
-                                               opt_dfet_mat, i_iter, .FALSE.)
+         CALL print_dfet_mat(force_env%sub_force_env(ref_subsys_number)%force_env%qs_env,&
+                                               opt_dfet_mat, i_iter, .FALSE.,'pot ')
 
          ! Check convergence
          CALL print_dfet_mat_opt_info(output_unit, i_iter, opt_dfet_mat)
@@ -2440,8 +2440,8 @@ CONTAINS
             energies(cluster_subsys_num) = cluster_energy
          ENDIF
          ! Print converged potential
-         CALL print_dfet_mat_restart(force_env%sub_force_env(ref_subsys_number)%force_env%qs_env,&
-                                               opt_dfet_mat, i_iter, .TRUE.)
+         CALL print_dfet_mat(force_env%sub_force_env(ref_subsys_number)%force_env%qs_env,&
+                                               opt_dfet_mat, i_iter, .TRUE.,'pot_')
 
       ENDIF
 
