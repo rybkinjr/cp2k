@@ -338,7 +338,7 @@ MODULE dfet_mat_utils
          END IF ! atom has an orbital basis
       END DO ! next atom iatom
 
-      CALL mp_sum(atom_cont, para_env%group)
+      !CALL mp_sum(atom_cont, para_env%group)
       write(*,*) 'atom_cont_inside', atom_cont
 
 
