@@ -150,7 +150,7 @@ MODULE dfet_mat_utils
 
       ! Build Mulliken population matrix for each spin
       DO ispin = 1, nspin
-         CALL dbcsr_iterator_start(iter, v_mat(1)%matrix)
+         CALL dbcsr_iterator_start(iter, v_mat(ispin)%matrix)
          DO WHILE (dbcsr_iterator_blocks_left(iter))
             CALL dbcsr_iterator_next_block(iter, iatom, jatom, v_block, blk)
             IF (.NOT. (ASSOCIATED(v_block))) CYCLE
@@ -181,16 +181,13 @@ MODULE dfet_mat_utils
       ! Allocate atomic contribution
       ALLOCATE(atom_cont(natom))
       ! Write atomic populations and charges
-      IF (output_unit > 0) THEN
-         print_gop = (print_level > 1) ! Print also orbital populations
-         CALL write_pot_cont(pot_cont, atomic_kind_set, qs_kind_set, particle_set, &
-                             output_unit, print_gop, atom_cont, para_env)
-      END IF
+      print_gop = (print_level > 1) ! Print also orbital populations
+      CALL write_pot_cont(pot_cont, atomic_kind_set, qs_kind_set, particle_set, &
+                          output_unit, print_gop, atom_cont, para_env)
 
       ! Reduce potential
       If (do_reduce) CALL reduce_potential(qs_env, v_mat, atom_cont, natom, thresh,&
                           real_atoms, output_unit, i_iter)
-      write(*,*) 'atom_cont_outside', atom_cont
 
       ! Release stuff
       IF (ASSOCIATED(pot_cont)) THEN
@@ -202,7 +199,6 @@ MODULE dfet_mat_utils
       !IF (ASSOCIATED(atom_cont)) THEN
          DEALLOCATE (atom_cont)
       !END IF
-
 
       IF (output_unit > 0) THEN
          WRITE (UNIT=output_unit, FMT="(T2,A)") &
@@ -267,12 +263,14 @@ MODULE dfet_mat_utils
       CALL get_qs_kind_set(qs_kind_set, nsgf=nsgf)
 
       ! Select and write headline
-      IF (print_orbital_contributions) THEN
-         WRITE (UNIT=output_unit, FMT="(/,T2,A)") &
-            "# Orbital  AO symbol  Orbital contribution                            Net value"
-      ELSE
-         WRITE (UNIT=output_unit, FMT="(/,T2,A)") &
-            "#  Atom  Element  Kind  Atomic contribution                           Net value"
+      IF (output_unit > 0) THEN
+         IF (print_orbital_contributions) THEN
+            WRITE (UNIT=output_unit, FMT="(/,T2,A)") &
+               "# Orbital  AO symbol  Orbital contribution                            Net value"
+         ELSE
+            WRITE (UNIT=output_unit, FMT="(/,T2,A)") &
+               "#  Atom  Element  Kind  Atomic contribution                           Net value"
+         END IF
       END IF
 
       totsum_pot_cont(:) = 0.0_dp
@@ -299,20 +297,24 @@ MODULE dfet_mat_utils
                   DO iso = 1, nso(l)
                      IF (nspin == 1) THEN
                         sum_pot_cont(1) = sum_pot_cont(1) + pot_cont(iao, 1)
-                        IF (print_orbital_contributions) THEN
-                           IF (isgf == 1) WRITE (UNIT=output_unit, FMT="(A)") ""
-                           WRITE (UNIT=output_unit, &
-                                  FMT="(T2,I9,2X,A2,1X,A,T30,F12.6)") &
-                              iao, element_symbol, sgf_symbol(isgf), pot_cont(iao, 1)
-                        END IF
+                        IF (output_unit > 0) THEN
+                           IF (print_orbital_contributions) THEN
+                              IF (isgf == 1) WRITE (UNIT=output_unit, FMT="(A)") ""
+                              WRITE (UNIT=output_unit, &
+                                     FMT="(T2,I9,2X,A2,1X,A,T30,F12.6)") &
+                                 iao, element_symbol, sgf_symbol(isgf), pot_cont(iao, 1)
+                           END IF
+                        ENDIF
                      ELSE
                         sum_pot_cont(1:2) = sum_pot_cont(1:2) + pot_cont(iao, 1:2)
                         IF (print_orbital_contributions) THEN
-                           IF (isgf == 1) WRITE (UNIT=output_unit, FMT="(A)") ""
-                           WRITE (UNIT=output_unit, &
-                                  FMT="(T2,I9,2X,A2,1X,A,T30,F12.6)") &
-                              iao, element_symbol, sgf_symbol(isgf), &
-                              pot_cont(iao, 1)+pot_cont(iao,2)
+                           IF (output_unit > 0) THEN
+                              IF (isgf == 1) WRITE (UNIT=output_unit, FMT="(A)") ""
+                              WRITE (UNIT=output_unit, &
+                                     FMT="(T2,I9,2X,A2,1X,A,T30,F12.6)") &
+                                 iao, element_symbol, sgf_symbol(isgf), &
+                                 pot_cont(iao, 1)+pot_cont(iao,2)
+                           END IF
                         END IF
                      END IF
                      isgf = isgf + 1
@@ -324,34 +326,39 @@ MODULE dfet_mat_utils
                totsum_pot_cont(1) = totsum_pot_cont(1) + sum_pot_cont(1)
                ! Save atom contribution
                atom_cont(iatom) = sum_pot_cont(1)
-               WRITE (UNIT=output_unit, &
-                      FMT="(T2,I7,5X,A2,2X,I6,T30,F12.6,T68)") &
-                  iatom, element_symbol, ikind, sum_pot_cont(1)
+               IF (output_unit > 0) THEN
+                  WRITE (UNIT=output_unit, &
+                         FMT="(T2,I7,5X,A2,2X,I6,T30,F12.6,T68)") &
+                     iatom, element_symbol, ikind, sum_pot_cont(1)
+               ENDIF
             ELSE
                totsum_pot_cont(1:2) = totsum_pot_cont(1:2) + sum_pot_cont(1:2)
                ! Save atom contribution
                atom_cont(iatom) = sum_pot_cont(1) + sum_pot_cont(2)
-               WRITE (UNIT=output_unit, &
-                      FMT="(T2,I7,5X,A2,2X,I6,T30,F12.6,T68)") &
-                  iatom, element_symbol, ikind, sum_pot_cont(1)+sum_pot_cont(2)
+               IF (output_unit > 0) THEN
+                   WRITE (UNIT=output_unit, &
+                          FMT="(T2,I7,5X,A2,2X,I6,T30,F12.6,T68)") &
+                      iatom, element_symbol, ikind, sum_pot_cont(1)+sum_pot_cont(2)
+               ENDIF
             END IF
          END IF ! atom has an orbital basis
       END DO ! next atom iatom
 
-      !CALL mp_sum(atom_cont, para_env%group)
-      write(*,*) 'atom_cont_inside', atom_cont
+      CALL mp_sum(atom_cont, para_env%group)
 
 
       ! Write total sums
-      IF (print_orbital_contributions) WRITE (UNIT=output_unit, FMT="(A)") ""
-      IF (nspin == 1) THEN
-         WRITE (UNIT=output_unit, &
-                FMT="(T2,A,T42,F12.6,T68)") &
-            "# Sum of atomic contributions", totsum_pot_cont(1)
-      ELSE
-         WRITE (UNIT=output_unit, &
-                FMT="(T2,A,T28,4(1X,F12.6),/)") &
-            "# Sum of atomic contributions", totsum_pot_cont(1) + totsum_pot_cont(2)
+      IF (output_unit > 0) THEN
+         IF (print_orbital_contributions) WRITE (UNIT=output_unit, FMT="(A)") ""
+         IF (nspin == 1) THEN
+            WRITE (UNIT=output_unit, &
+                   FMT="(T2,A,T42,F12.6,T68)") &
+               "# Sum of atomic contributions", totsum_pot_cont(1)
+         ELSE
+            WRITE (UNIT=output_unit, &
+                   FMT="(T2,A,T28,4(1X,F12.6),/)") &
+               "# Sum of atomic contributions", totsum_pot_cont(1) + totsum_pot_cont(2)
+         END IF
       END IF
 
       IF (output_unit > 0) CALL m_flush(output_unit)
@@ -387,8 +394,6 @@ MODULE dfet_mat_utils
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
       INTEGER, DIMENSION(:)                              :: real_atoms
 
-      write(*,*) 'i_iter', i_iter
-
       CALL timeset(routineN, handle)
       ! Find the new, reduced atom list with significant contributions:
       ! real atoms of the subsystem must be forcefully included
@@ -401,7 +406,6 @@ MODULE dfet_mat_utils
       atom_mask = 0
       red_num_atom = 0
       pot_total = sum(atom_cont)
-      write(*,*) 'thresh', thresh, 'pot_total', pot_total, 'atom_cont', atom_cont
       DO iatom = 1, natom
          If (((atom_cont(iatom)/pot_total) .GE. thresh) .OR. (real_atom_mask(iatom) .EQ. 1)) then
             red_num_atom = red_num_atom + 1
@@ -422,8 +426,6 @@ MODULE dfet_mat_utils
       ALLOCATE(red_ind(red_num_atom, 2))
 
       CALL find_reduced_basis_size(qs_env, atom_mask, reduced_dim, full_ind, red_ind)
-      write(*,*) 'reduced dimension', reduced_dim
-      write(*,*) 'red_atom_list', red_atom_list
 
      ! Make the projectors
      CALL get_qs_env(qs_env=qs_env, &
@@ -473,9 +475,6 @@ MODULE dfet_mat_utils
         CALL cp_fm_set_submatrix(Pt, unit_block, start_row, start_col, unit_size, unit_size)
         DEALLOCATE(unit_block)
      END DO
-     DO i = 1, nao
-        write(*,*) 'projector', Pt%local_data(i,:)
-     ENDDO
 
      DO ispin = 1, nspins
         ! Multiply, first sparse by dense: V*P^t
@@ -539,12 +538,14 @@ MODULE dfet_mat_utils
       CALL get_atomic_kind_set(atomic_kind_set, kind_of=kind_of)
 
       reduced_dim = 0
-      write(*,*) 'natom = ', natom
       start_red = 0
       start_full = 0
       i_red_at = 0
       full_dim = 0
- 
+      nsgf = 0
+      full_ind = 0
+      red_ind = 0
+
       DO iatom = 1, natom
          ikind = kind_of(iatom)
          CALL get_qs_kind(qs_kind=qs_kind_set(ikind), nsgf=nsgf, basis_type="ORB")

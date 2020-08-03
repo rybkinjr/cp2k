@@ -785,7 +785,7 @@ CONTAINS
             ! Print the embedding KS matrix term
             CALL print_dfet_mat(qs_env, opt_dfet_mat, opt_dfet_mat%i_iter, .False., 'term')
    
-            ! Likewise, partitioning should be done for one subsystem:
+            ! Likewise, partitioning should be done once:
             ! find atomic contributions to dfet_mat_term
             CALL mulliken_pot_partitioning(qs_env_ref,&
                  opt_dfet_mat%dfet_mat_term, output_unit, 1, opt_dfet_mat%reduce_dfet_mat,&
