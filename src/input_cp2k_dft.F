@@ -107,7 +107,8 @@ MODULE input_cp2k_dft
    USE input_cp2k_ec,                   ONLY: create_ec_section
    USE input_cp2k_field,                ONLY: create_efield_section,&
                                               create_per_efield_section
-   USE input_cp2k_hfx,                  ONLY: create_hf_ri_section
+   USE input_cp2k_hfx,                  ONLY: create_hf_ri_section,&
+                                              create_hfx_section
    USE input_cp2k_kpoints,              ONLY: create_kpoints_section
    USE input_cp2k_ls,                   ONLY: create_ls_scf_section
    USE input_cp2k_mm,                   ONLY: create_dipoles_section,&
@@ -6262,6 +6263,13 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="USE_RI", &
+                          description="Compute overlap integrals "// &
+                          "with RI.", &
+                          usage="USE_RI .FALSE.", default_l_val=.FALSE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
       CALL keyword_create(keyword, __LOCATION__, name="READ_EMBED_POT_MAT", &
                           description="Read the embedding potential  "// &
                           "restart in an matrix form as a guess.", &
@@ -6299,8 +6307,15 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      ! RI integrals section
       NULLIFY (subsection)
       CALL create_hf_ri_section(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
+      ! "Normal" integrals section
+      NULLIFY (subsection)
+      CALL create_hfx_section(subsection)
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 

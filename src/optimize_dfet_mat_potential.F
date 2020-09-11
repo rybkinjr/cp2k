@@ -42,6 +42,7 @@ MODULE optimize_dfet_mat_potential
                                               dbcsr_maxabs, &
                                               dbcsr_scale, &
                                               dbcsr_get_info
+   USE hfx_energy_potential,            ONLY: integrate_four_center
    USE embed_types,                     ONLY: opt_dfet_mat_pot_type
    USE input_section_types,             ONLY: section_vals_type,&
                                               section_vals_val_get,&
@@ -65,7 +66,9 @@ MODULE optimize_dfet_mat_potential
    USE hfx_types,                       ONLY: hfx_type,&
                                               hfx_ri_type,&
                                               hfx_ri_init_read_input,&
-                                              hfx_ri_release
+                                              hfx_ri_release, &
+                                              hfx_release,&
+                                              hfx_create
    USE hfx_ri,                          ONLY: hfx_ri_update_ks
    USE cp_blacs_env,                    ONLY: cp_blacs_env_create,&
                                               cp_blacs_env_release,&
@@ -109,6 +112,7 @@ MODULE optimize_dfet_mat_potential
                                               cp_print_key_unit_nr
    USE cp_files,                        ONLY: close_file,&
                                               open_file
+   USE cell_types,                      ONLY: cell_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -128,10 +132,11 @@ CONTAINS
 !> \param opt_dmfet ...
 !> \param opt_dmfet_section ...
 ! **************************************************************************************************
-   SUBROUTINE read_opt_dfet_mat_section(opt_dfet_mat, opt_dfet_mat_section, ri_section)
+   SUBROUTINE read_opt_dfet_mat_section(opt_dfet_mat, opt_dfet_mat_section, ri_section, hfx_section)
       TYPE(opt_dfet_mat_pot_type)                        :: opt_dfet_mat
       TYPE(section_vals_type), POINTER                   :: opt_dfet_mat_section
       TYPE(section_vals_type), POINTER                   :: ri_section
+      TYPE(section_vals_type), POINTER                   :: hfx_section
       INTEGER                                            :: dfet_mat_optimizer, i, n_rep
       INTEGER, DIMENSION(:), POINTER                     :: tmp_v
 
@@ -157,6 +162,9 @@ CONTAINS
 
       CALL section_vals_val_get(opt_dfet_mat_section, "READ_EMBED_POT_MAT", &
                                 l_val=opt_dfet_mat%read_embed_pot_mat)
+
+      CALL section_vals_val_get(opt_dfet_mat_section, "USE_RI", &
+                                l_val=opt_dfet_mat%use_ri)
 
       CALL section_vals_val_get(opt_dfet_mat_section, "OPTIMIZER", i_val=dfet_mat_optimizer)
       SELECT CASE (dfet_mat_optimizer)
@@ -189,22 +197,26 @@ CONTAINS
          DEALLOCATE (tmp_v)
       END IF
 
-      NULLIFY(ri_section)
-      ri_section => section_vals_get_subs_vals(opt_dfet_mat_section, "RI")
+      If (opt_dfet_mat%use_ri) then ! Resolution of identity four-center overlap
+         NULLIFY(ri_section)
+         ri_section => section_vals_get_subs_vals(opt_dfet_mat_section, "RI")
+      Else ! Standard four-center overlap
+         NULLIFY(hfx_section)
+         hfx_section => section_vals_get_subs_vals(opt_dfet_mat_section, "HF")
+         opt_dfet_mat%hfx_section => hfx_section
+      Endif
 
    END SUBROUTINE read_opt_dfet_mat_section
-
 
    SUBROUTINE overlap_ri_init(ri_data, ri_section, qs_kind_set, &
                             particle_set, atomic_kind_set, dft_control, para_env, nelectron_total, unit_nr)
       TYPE(hfx_ri_type), POINTER                         :: ri_data
- !     TYPE(hfx_type)                       :: x_data
       TYPE(section_vals_type), POINTER                   :: ri_section
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(cp_para_env_type)                             :: para_env
+      TYPE(cp_para_env_type), POINTER                     :: para_env
       INTEGER, INTENT(IN)                                :: nelectron_total
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'overlap_ri_init', &
@@ -275,17 +287,26 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       INTEGER                                            :: nelectron_total
       TYPE(section_vals_type), POINTER                   :: ri_section
+      TYPE(section_vals_type), POINTER                   :: hfx_section
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
+      TYPE(cell_type), POINTER                           :: cell
       INTEGER                                            :: unit_nr
 
       ! Read the input
-      CALL read_opt_dfet_mat_section(opt_dfet_mat, opt_dfet_mat_section, ri_section)
+      CALL read_opt_dfet_mat_section(opt_dfet_mat, opt_dfet_mat_section, ri_section, hfx_section)
 
-      ! Prepare the ri ovelap calculations
+      ! Prepare the 4-center ovelap calculations
       CALL get_qs_env(qs_env, qs_kind_set=qs_kind_set, particle_set=particle_set, atomic_kind_set=atomic_kind_set, &
                       dft_control=dft_control, para_env=para_env, nelectron_total=nelectron_total)
-      CALL  overlap_ri_init(opt_dfet_mat%ri_data, ri_section, qs_kind_set, &
+      If (opt_dfet_mat%use_ri) then ! RI
+         CALL  overlap_ri_init(opt_dfet_mat%ri_data, ri_section, qs_kind_set, &
                             particle_set, atomic_kind_set, dft_control, para_env, nelectron_total, unit_nr)
+      Else  ! Standard
+         NULLIFY (cell, opt_dfet_mat%x_data)
+         CALL get_qs_env(qs_env, cell=cell)
+         CALL hfx_create(opt_dfet_mat%x_data, para_env, hfx_section, atomic_kind_set, &
+                         qs_kind_set, particle_set, dft_control, cell)
+      Endif
 
       nspins = 1
       IF (opt_dfet_mat%open_shell_embed) nspins = 2
@@ -394,8 +415,12 @@ CONTAINS
       DEALLOCATE (opt_dfet_mat%max_grad)
       DEALLOCATE (opt_dfet_mat%int_grad)
 
-      ! Release RI data
-      CALL hfx_ri_release(opt_dfet_mat%ri_data)
+      ! Release 4-center overlap data
+      If (opt_dfet_mat%use_ri) then ! RI
+         CALL hfx_ri_release(opt_dfet_mat%ri_data)
+      Else ! Standard
+         CALL hfx_release(opt_dfet_mat%x_data)
+      Endif
       
       If (opt_dfet_mat%cg) then
          DO ispin = 1, nspins
@@ -433,6 +458,8 @@ CONTAINS
       INTEGER                                            :: handle, ispin, nspins, step
       TYPE(dbcsr_p_type), DIMENSION(:,:), POINTER        :: rho_ao_2d, mat_2d
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: gradient
+      TYPE(section_vals_type), POINTER                   :: hfx_section
+      TYPE(cp_para_env_type), POINTER                    :: para_env
 
       CALL timeset(routineN, handle)
       nspins = 1
@@ -465,8 +492,11 @@ CONTAINS
          Do ispin = 1, nspins
             ALLOCATE (mat_2d(ispin, 1)%matrix)
             CALL dbcsr_init_p(mat_2d(ispin, 1)%matrix)
-            CALL dbcsr_create(mat_2d(ispin, 1)%matrix, template=gradient(ispin)%matrix)
-            CALL dbcsr_copy(mat_2d(ispin, 1)%matrix, gradient(ispin)%matrix)
+            !CALL dbcsr_create(mat_2d(ispin, 1)%matrix, template=gradient(ispin)%matrix)
+            CALL dbcsr_create(mat_2d(ispin, 1)%matrix, template=opt_dfet_mat%v_mat(ispin)%matrix)
+            !CALL dbcsr_copy(mat_2d(ispin, 1)%matrix, gradient(ispin)%matrix)
+            CALL dbcsr_copy(mat_2d(ispin, 1)%matrix, opt_dfet_mat%v_mat(ispin)%matrix)
+            CALL dbcsr_set(mat_2d(ispin, 1)%matrix, 0.0_dp)
             ! DM differences serve as rho_ao
             ALLOCATE (rho_ao_2d(ispin, 1)%matrix)
             CALL dbcsr_init_p(rho_ao_2d(ispin, 1)%matrix)
@@ -490,9 +520,20 @@ CONTAINS
          write(*,*) dbcsr_frobenius_norm(mat_2d(1,1)%matrix)
          write(*,*) 'before update, step'
          ehfx = 0.0_dp
-         CALL hfx_ri_update_ks(qs_env=qs_env, ri_data=opt_dfet_mat%ri_data, ks_matrix=mat_2d, ehfx=ehfx, &
+         If (opt_dfet_mat%use_ri) then ! RI
+            CALL hfx_ri_update_ks(qs_env=qs_env, ri_data=opt_dfet_mat%ri_data, ks_matrix=mat_2d, ehfx=ehfx, &
                                rho_ao=rho_ao_2d, geometry_did_change = geometry_did_change, nspins=nspins, &
                                hf_fraction=hf_fraction)
+         Else ! Standard
+            NULLIFY (hfx_section)
+            hfx_section => opt_dfet_mat%hfx_section
+            CALL get_qs_env(qs_env=qs_env, para_env=para_env)
+            write(*,*) 'size x_data', size(opt_dfet_mat%x_data), opt_dfet_mat%x_data(1,1)%number_of_p_entries
+            Do ispin = 1, nspins
+               CALL integrate_four_center(qs_env, opt_dfet_mat%x_data, mat_2d, ehfx, rho_ao_2d, hfx_section, &
+                                       para_env, geometry_did_change, 1, .TRUE., ispin)
+            Enddo
+         Endif
          write(*,*) 'after update, step'
          ! Copy from auxiliary structure to gradient
          DO ispin = 1, nspins
@@ -511,8 +552,8 @@ CONTAINS
       
          ! Compute norms and deallocate gradient
          DO ispin = 1, nspins
-            opt_dfet_mat%int_grad(ispin) = dbcsr_frobenius_norm(gradient(ispin)%matrix)
-            opt_dfet_mat%max_grad(ispin) = dbcsr_maxabs(gradient(ispin)%matrix)
+            opt_dfet_mat%int_grad(ispin) =  dbcsr_frobenius_norm(gradient(ispin)%matrix)
+            opt_dfet_mat%max_grad(ispin) =  dbcsr_maxabs(gradient(ispin)%matrix)
             CALL dbcsr_release(gradient(ispin)%matrix)
             DEALLOCATE (gradient(ispin)%matrix)
          ENDDO
@@ -691,6 +732,8 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho_ao_ref
       TYPE(qs_rho_type), POINTER                         :: rho_ref
       INTEGER                                            :: output_unit
+      TYPE(section_vals_type), POINTER                   :: hfx_section
+      TYPE(cp_para_env_type), POINTER                    :: para_env
 
       my_change_spin = .FALSE.
       IF ((opt_dfet_mat%change_spin) .AND. (i_force_eval .EQ. 2)) my_change_spin = .TRUE.
@@ -736,6 +779,7 @@ CONTAINS
              ALLOCATE (term_local(ispin)%matrix)
              CALL dbcsr_init_p(term_local(ispin)%matrix)
              CALL dbcsr_create(term_local(ispin)%matrix, template=opt_dfet_mat%v_mat(1)%matrix)
+             CALL dbcsr_copy(term_local(ispin)%matrix, opt_dfet_mat%v_mat(1)%matrix)
              CALL dbcsr_set(term_local(ispin)%matrix, 0.0_dp)
           ENDDO
     
@@ -749,9 +793,20 @@ CONTAINS
 
           ! Compute the term with HFX-like update 
           write(*,*) 'Came to update?, ks_mat'
-          CALL hfx_ri_update_ks(qs_env=qs_env_ref, ri_data=opt_dfet_mat%ri_data, ks_matrix=mat_2d, ehfx=ehfx, &
+          If (opt_dfet_mat%use_ri) then
+            CALL hfx_ri_update_ks(qs_env=qs_env_ref, ri_data=opt_dfet_mat%ri_data, ks_matrix=mat_2d, ehfx=ehfx, &
                                 rho_ao=rho_ao_2d, geometry_did_change = geometry_did_change, nspins=nspins, &
                                 hf_fraction=hf_fraction)
+          Else
+            NULLIFY (hfx_section)
+            hfx_section => opt_dfet_mat%hfx_section
+            CALL get_qs_env(qs_env=qs_env, para_env=para_env)
+            DO ispin = 1, nspins
+               CALL integrate_four_center(qs_env_ref, opt_dfet_mat%x_data, mat_2d, ehfx, rho_ao_2d, hfx_section, &
+                                       para_env, geometry_did_change, 1, .TRUE., ispin)
+            ENDDO
+
+          Endif
           write(*,*) 'Made the update?, ks_mat'
           DO ispin = 1, nspins
 

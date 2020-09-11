@@ -28,7 +28,8 @@ MODULE embed_types
                                               cp_subsys_type
    USE dbcsr_api,                       ONLY: dbcsr_p_type
    USE distribution_1d_types,           ONLY: distribution_1d_type
-   USE hfx_types,                       ONLY: hfx_ri_type
+   USE hfx_types,                       ONLY: hfx_ri_type,&
+                                              hfx_type
    USE input_section_types,             ONLY: section_vals_release,&
                                               section_vals_retain,&
                                               section_vals_type
@@ -109,12 +110,15 @@ MODULE embed_types
       LOGICAL                                   :: converged, read_dfet_mat_pot, &
                                                    change_spin, open_shell_embed
       LOGICAL                                   :: cg, sd, reduce_dfet_mat
+      LOGICAL                                   :: use_ri
       LOGICAL                                   :: read_embed_pot_mat
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)  :: w_func, max_grad, int_grad
       INTEGER                                   :: n_iter, i_iter, last_accepted
       INTEGER, ALLOCATABLE, DIMENSION(:)        :: all_nspins
       INTEGER, DIMENSION(:), POINTER            :: real_atoms
       TYPE(hfx_ri_type), POINTER                :: ri_data
+      TYPE(hfx_type), DIMENSION(:, :), POINTER  :: x_data
+      TYPE(section_vals_type), POINTER          :: hfx_section
 
    END TYPE opt_dfet_mat_pot_type
 
