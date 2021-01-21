@@ -136,7 +136,8 @@ MODULE scf_control_types
       INTEGER                               :: max_scf, max_scf_hist, &
                                                maxl, nkind
       LOGICAL                               :: do_diag_sub, &
-                                               use_cholesky, use_ot, use_diag, do_outer_scf_reortho, stop_higher_iter_level
+                                               use_cholesky, use_ot, use_diag, do_outer_scf_reortho, stop_higher_iter_level, &
+                                               single_loop
       INTEGER                               :: ref_count, id_nr
       INTEGER, DIMENSION(2)                 :: added_mos
       INTEGER                               :: roks_scheme
@@ -191,6 +192,9 @@ CONTAINS
       scf_control%id_nr = last_scf_c_id_nr
       scf_control%added_mos(:) = 0
       scf_control%max_scf_hist = 0
+
+      ! Single loop: for embedding
+      scf_control%single_loop = .FALSE.
 
       !Mixing
       scf_control%mixing_method = direct_p_mix
@@ -373,6 +377,7 @@ CONTAINS
       CALL section_vals_val_get(scf_section, "EPS_DIIS", r_val=scf_control%eps_diis)
       CALL section_vals_val_get(scf_section, "eps_eigval", r_val=scf_control%eps_eigval)
       CALL section_vals_val_get(scf_section, "cholesky", i_val=cholesky_flag)
+      CALL section_vals_val_get(scf_section, "SINGLE_LOOP", l_val=scf_control%single_loop)
       IF (cholesky_flag > 0) THEN
          scf_control%use_cholesky = .TRUE.
       END IF

@@ -471,12 +471,15 @@ CONTAINS
             ELSE
                ! Gamma points only
                CALL qs_scf_new_mos(qs_env, scf_env, scf_control, scf_section, diis_step, energy_only)
-            END IF
+            END IF ! do_kpoints
 
             ! another heavy weight print object, print controlled by dft_section
             CALL qs_scf_write_mos(mos, atomic_kind_set, qs_kind_set, particle_set, dft_section)
 
-            CALL qs_scf_density_mixing(scf_env, rho, para_env, diis_step)
+            ! Do not update mos if we want to compute only the energy with input MOs: needed for embedding
+            If (.NOT. scf_control%single_loop) then
+               CALL qs_scf_density_mixing(scf_env, rho, para_env, diis_step)
+            END IF ! single_loop
 
             t2 = m_walltime()
 

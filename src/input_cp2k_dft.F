@@ -5419,6 +5419,12 @@ CONTAINS
       CALL section_add_keyword(subsection, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="SINGLE_LOOP", &
+                          description="asks to perform a single loop without orbital update", &
+                          usage="SINGLE_LOOP .FALSE.", default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
@@ -9167,6 +9173,19 @@ CONTAINS
                           description="Shell definition for subsapce.", &
                           usage="SUBSPACE_SHELL 3d4s", default_c_val="X", &
                           type_of_var=char_t)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="READ_P_ACTIVE", &
+                          description="Active density matrix must be read", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.FALSE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="P_ACTIVE_FILE_NAME", &
+                          description="Name of the active DM file, may include a path", &
+                          usage="P_ACTIVE_FILE_NAME <FILENAME>", &
+                          type_of_var=lchar_t, repeats=.FALSE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 

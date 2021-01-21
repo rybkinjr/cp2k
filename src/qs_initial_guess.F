@@ -391,19 +391,24 @@ CONTAINS
                      CALL cp_fm_to_fm(mo_coeff, ortho)
                   END IF
 
-                  ! make all nmo vectors present orthonormal
-                  CALL get_mo_set(mo_set=mo_array(ispin)%mo_set, &
-                                  mo_coeff=mo_coeff, nmo=nmo, homo=homo)
+                  ! If we do a single loop for active space embedding: do nothing to MOs read
+                  If (.NOT. scf_control%single_loop) then
 
-                  IF (has_unit_metric) THEN
-                     CALL make_basis_simple(mo_coeff, nmo)
-                  ELSEIF (dft_control%smear) THEN
-                     CALL make_basis_lowdin(vmatrix=mo_coeff, ncol=nmo, &
-                                            matrix_s=s_sparse(1)%matrix)
-                  ELSE
-                     ! ortho so that one can restart for different positions (basis sets?)
-                     CALL make_basis_sm(mo_coeff, homo, s_sparse(1)%matrix)
-                  ENDIF
+                     ! make all nmo vectors present orthonormal
+                     CALL get_mo_set(mo_set=mo_array(ispin)%mo_set, &
+                                     mo_coeff=mo_coeff, nmo=nmo, homo=homo)
+                  
+                     IF (has_unit_metric) THEN
+                        CALL make_basis_simple(mo_coeff, nmo)
+                     ELSEIF (dft_control%smear) THEN
+                        CALL make_basis_lowdin(vmatrix=mo_coeff, ncol=nmo, &
+                                               matrix_s=s_sparse(1)%matrix)
+                     ELSE
+                        ! ortho so that one can restart for different positions (basis sets?)
+                        CALL make_basis_sm(mo_coeff, homo, s_sparse(1)%matrix)
+                     ENDIF
+
+                  ENDIF ! Single loop
                   ! only alpha spin is kept for restricted
                   IF (dft_control%restricted) EXIT
                ENDDO
