@@ -477,7 +477,7 @@ CONTAINS
             CALL qs_scf_write_mos(mos, atomic_kind_set, qs_kind_set, particle_set, dft_section)
 
             ! Do not update mos if we want to compute only the energy with input MOs: needed for embedding
-            If (.NOT. scf_control%single_loop) then
+            IF (.NOT. scf_control%single_loop) THEN
                CALL qs_scf_density_mixing(scf_env, rho, para_env, diis_step)
             END IF ! single_loop
 

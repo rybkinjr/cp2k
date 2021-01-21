@@ -19,8 +19,8 @@ MODULE qs_active_space_types
    USE dbcsr_api,                       ONLY: dbcsr_csr_destroy,&
                                               dbcsr_csr_p_type,&
                                               dbcsr_p_type
-   USE kinds,                           ONLY: dp,&
-                                              default_path_length
+   USE kinds,                           ONLY: default_path_length,&
+                                              dp
    USE qs_mo_types,                     ONLY: deallocate_mo_set,&
                                               mo_set_p_type
 #include "./base/base_uses.f90"

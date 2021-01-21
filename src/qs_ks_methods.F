@@ -60,8 +60,8 @@ MODULE qs_ks_methods
                                               cp_print_key_should_output
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE dbcsr_api,                       ONLY: &
-        dbcsr_add, dbcsr_copy, dbcsr_create, dbcsr_filter, dbcsr_get_info, dbcsr_multiply, &
-        dbcsr_p_type, dbcsr_release, dbcsr_set, dbcsr_type, dbcsr_type_symmetric, dbcsr_frobenius_norm
+        dbcsr_add, dbcsr_copy, dbcsr_create, dbcsr_filter, dbcsr_frobenius_norm, dbcsr_get_info, &
+        dbcsr_multiply, dbcsr_p_type, dbcsr_release, dbcsr_set, dbcsr_type, dbcsr_type_symmetric
    USE dft_plus_u,                      ONLY: plus_u
    USE efield_utils,                    ONLY: efield_potential
    USE hartree_local_methods,           ONLY: Vh_1c_gg_integrals
@@ -611,9 +611,9 @@ CONTAINS
                             just_energy=just_energy_xc)
          IF (edisp /= 0.0_dp) energy%dispersion = edisp
          IF (qs_env%requires_matrix_vxc .AND. ASSOCIATED(v_rspace_new)) THEN
-            write(*,*) 'Do we compute vxc?'
+            WRITE (*, *) 'Do we compute vxc?'
             CALL compute_matrix_vxc(qs_env=qs_env, v_rspace=v_rspace_new, matrix_vxc=matrix_vxc)
-            write(*,*) 'Norm=', dbcsr_frobenius_norm(matrix_vxc(1)%matrix)
+            WRITE (*, *) 'Norm=', dbcsr_frobenius_norm(matrix_vxc(1)%matrix)
             CALL set_ks_env(ks_env, matrix_vxc=matrix_vxc)
          ENDIF
 

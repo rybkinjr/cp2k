@@ -392,12 +392,12 @@ CONTAINS
                   END IF
 
                   ! If we do a single loop for active space embedding: do nothing to MOs read
-                  If (.NOT. scf_control%single_loop) then
+                  IF (.NOT. scf_control%single_loop) THEN
 
                      ! make all nmo vectors present orthonormal
                      CALL get_mo_set(mo_set=mo_array(ispin)%mo_set, &
                                      mo_coeff=mo_coeff, nmo=nmo, homo=homo)
-                  
+
                      IF (has_unit_metric) THEN
                         CALL make_basis_simple(mo_coeff, nmo)
                      ELSEIF (dft_control%smear) THEN
