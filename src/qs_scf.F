@@ -465,13 +465,15 @@ CONTAINS
             ! print 'heavy weight' or relatively expensive quantities
             CALL qs_scf_loop_print(qs_env, scf_env, para_env)
 
-            IF (do_kpoints) THEN
-               ! kpoints
-               CALL qs_scf_new_mos_kp(qs_env, scf_env, scf_control, diis_step)
-            ELSE
-               ! Gamma points only
-               CALL qs_scf_new_mos(qs_env, scf_env, scf_control, scf_section, diis_step, energy_only)
-            END IF ! do_kpoints
+            IF (.NOT. scf_control%single_loop) THEN
+               IF (do_kpoints) THEN
+                  ! kpoints
+                  CALL qs_scf_new_mos_kp(qs_env, scf_env, scf_control, diis_step)
+               ELSE
+                  ! Gamma points only
+                  CALL qs_scf_new_mos(qs_env, scf_env, scf_control, scf_section, diis_step, energy_only)
+               END IF ! do_kpoints
+            ENDIF
 
             ! another heavy weight print object, print controlled by dft_section
             CALL qs_scf_write_mos(mos, atomic_kind_set, qs_kind_set, particle_set, dft_section)

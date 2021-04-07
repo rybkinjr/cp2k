@@ -100,6 +100,8 @@ CONTAINS
 
       IF (ncol .EQ. 0) RETURN
 
+      write(*,*) 'Come to make_basis_sm!'
+
       CALL timeset(routineN, handle)
 
       CALL cp_fm_get_info(matrix=vmatrix, nrow_global=n, ncol_global=ncol_global)
@@ -313,6 +315,8 @@ CONTAINS
 
       IF (ncol .EQ. 0) RETURN
 
+      write(*,*) 'Come to make_basis_Lowdin!'
+
       CALL timeset(routineN, handle)
       NULLIFY (fm_struct_tmp)
       threshold = 1.0E-7_dp
@@ -364,6 +368,8 @@ CONTAINS
       TYPE(cp_fm_type), POINTER                          :: overlap_vv
 
       IF (ncol .EQ. 0) RETURN
+
+      write(*,*) 'Come to make_basis_simple!'
 
       CALL timeset(routineN, handle)
 

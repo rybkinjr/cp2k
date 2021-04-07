@@ -655,6 +655,7 @@ CONTAINS
       TYPE(qs_energy_type), POINTER                      :: energy
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(qs_rho_type), POINTER                         :: rho
+      TYPE(scf_control_type), POINTER                    :: scf_control
 
       NULLIFY (energy, rho, dft_control, ks_env)
 
@@ -666,14 +667,21 @@ CONTAINS
 
       ! now, print out energies and charges corresponding to the obtained wfn
       ! (this actually is not 100% consistent at this point)!
+
       CALL qs_scf_print_summary(output_unit, qs_env)
 
-      CALL qs_scf_undo_mixing(scf_env, rho, dft_control, para_env, diis_step)
+      ! If we do a single SCF loop no updates and unmixing to be done
+      CALL get_qs_env(qs_env, scf_env=scf_env, scf_control=scf_control)
 
-      !   *** update rspace rho since the mo changed
-      !   *** this might not always be needed (i.e. no post calculation / no forces )
-      !   *** but guarantees that rho and wfn are consistent at this point
-      CALL qs_scf_rho_update(rho, qs_env, scf_env, ks_env, mix_rho=.FALSE.)
+      If (.NOT. scf_control%single_loop) then
+
+         CALL qs_scf_undo_mixing(scf_env, rho, dft_control, para_env, diis_step)
+   
+         !   *** update rspace rho since the mo changed
+         !   *** this might not always be needed (i.e. no post calculation / no forces )
+         !   *** but guarantees that rho and wfn are consistent at this point
+         CALL qs_scf_rho_update(rho, qs_env, scf_env, ks_env, mix_rho=.FALSE.)
+      ENDIF
 
    END SUBROUTINE qs_scf_inner_finalize
 

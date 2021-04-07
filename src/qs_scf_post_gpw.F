@@ -297,6 +297,10 @@ CONTAINS
          ENDIF
       ENDIF
 
+      ! Do active space calculation: before anything is done to the orbitals
+      CALL get_qs_env(qs_env, input=input)
+      CALL active_space_main(input, logger, qs_env)
+
       ! Writes the data that is already available in qs_env
       CALL get_qs_env(qs_env, scf_env=scf_env)
       CALL write_available_results(qs_env, scf_env)
@@ -730,9 +734,9 @@ CONTAINS
       ! Use Wannier90 interface
       CALL wannier90_interface(input, logger, qs_env)
 
-      ! Do active space calculation
-      CALL active_space_main(input, logger, qs_env)
-
+      !! Do active space calculation
+      !CALL active_space_main(input, logger, qs_env)
+      !
       CALL timestop(handle)
 
    END SUBROUTINE scf_post_calculation_gpw

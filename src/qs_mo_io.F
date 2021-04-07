@@ -547,6 +547,7 @@ CONTAINS
       CALL read_mos_restart_low(mo_array, para_env=para_env, qs_kind_set=qs_kind_set, &
                                 particle_set=particle_set, natom=natom, &
                                 rst_unit=restart_unit, multiplicity=multiplicity, natom_mismatch=natom_mismatch)
+
       IF (PRESENT(natom_mismatch)) THEN
          ! read_mos_restart_low only the io_node returns natom_mismatch, must broadcast it
          CALL mp_bcast(natom_mismatch, source, group)

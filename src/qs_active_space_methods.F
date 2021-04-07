@@ -202,7 +202,7 @@ CONTAINS
       TYPE(atomic_kind_type), POINTER                    :: atomic_kind
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mos_localized
-      TYPE(cp_fm_type), POINTER                          :: fm_ref, fm_target, fmat, mo_coeff
+      TYPE(cp_fm_type), POINTER                          :: fm_ref, fm_target, fmat, mo_coeff, fm_dummy
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_csr_type), POINTER                      :: eri_mat
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: ks_matrix, rho_ao
@@ -380,6 +380,9 @@ CONTAINS
       END IF
 
       CALL get_qs_env(qs_env, mos=mos)
+      write(*,*) 'on entry to active space' 
+      write(*,*) mos(1)%mo_set%mo_coeff%local_data(:,:)
+
       IF (.NOT. ASSOCIATED(mos(1)%mo_set)) THEN
          CALL cp_abort(__LOCATION__, "A reference MO set has to be available when determining"// &
                        " the active space orbitals.")
@@ -486,9 +489,19 @@ CONTAINS
             IF (mos(1)%mo_set%use_mo_coeff_b) THEN
                CPABORT("Needs MOs in FM format, missing code for DBCSR")
             ELSE
+
+      CALL get_qs_env(qs_env, mos=mos)
+      write(*,*) 'before subsys eigenval ' 
+      write(*,*) mos(1)%mo_set%mo_coeff%local_data(:,:)
+
                DO ispin = 1, nspins
                   CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=fm_ref, nmo=nmo)
-                  CALL calculate_subspace_eigenvalues(fm_ref, ks_matrix(ispin)%matrix, &
+
+                  ! We need to send the copy of MOs to preserve the sign
+                  CALL cp_fm_create(fm_dummy, fm_ref%matrix_struct)
+                  CALL cp_fm_to_fm(fm_ref, fm_dummy)
+
+                  CALL calculate_subspace_eigenvalues(fm_dummy, ks_matrix(ispin)%matrix, &
                                                       evals_arg=eigenvalues(:, ispin), do_rotation=.TRUE.)
                   ! copy inactive orbitals
                   mo_set => active_space_env%mos_inactive(ispin)%mo_set
@@ -500,7 +513,14 @@ CONTAINS
                   CALL get_mo_set(mo_set, mo_coeff=fm_target)
                   ncol = nactive_orb(ispin)
                   CALL cp_fm_to_fm(fm_ref, fm_target, ncol, ninactive_orb(ispin) + 1, 1)
+                  ! Release dummy
+                  CALL cp_fm_release(fm_dummy)
                END DO
+
+      CALL get_qs_env(qs_env, mos=mos)
+      write(*,*) 'after subsys eigenval ' 
+      write(*,*) mos(1)%mo_set%mo_coeff%local_data(:,:)
+
             END IF
             IF (iw > 0) THEN
                DO ispin = 1, nspins
@@ -1698,6 +1718,7 @@ CONTAINS
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: ks_a_mat, ks_a_ref, ks_b_mat, ks_b_ref, &
                                                             ks_mat, ks_ref, p_a_mat, p_b_mat, p_mat
       TYPE(cp_fm_type), POINTER                          :: matrix
+      TYPE(cp_fm_type), POINTER                          :: mo_coef
       TYPE(dbcsr_csr_type), POINTER                      :: eri, eri_aa, eri_ab, eri_bb
 
       eref = active_space_env%energy_ref
@@ -1705,6 +1726,10 @@ CONTAINS
 
       IF (nspins == 1) THEN
          CALL get_mo_set(active_space_env%mos_active(1)%mo_set, nmo=norb)
+         NULLIFY (mo_coef)
+         CALL get_mo_set(active_space_env%mos_active(1)%mo_set, mo_coeff=mo_coef)
+         write (*,*) 'mo coef'
+         write (*,*) mo_coef%local_data(:,:)
          !
          ! Loop over ERI, calculate subspace HF energy and Fock matrix
          !
