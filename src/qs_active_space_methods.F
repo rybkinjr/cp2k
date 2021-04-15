@@ -106,7 +106,8 @@ MODULE qs_active_space_methods
                                               qs_environment_type,&
                                               set_qs_env
    USE qs_kind_types,                   ONLY: qs_kind_type
-   USE qs_ks_methods,                   ONLY: qs_ks_update_qs_env
+   USE qs_ks_methods,                   ONLY: qs_ks_update_qs_env,&
+                                              qs_ks_build_kohn_sham_matrix
    USE qs_ks_types,                     ONLY: qs_ks_env_type
    USE qs_loc_methods,                  ONLY: qs_loc_driver
    USE qs_loc_types,                    ONLY: qs_loc_env_create,&
@@ -2139,6 +2140,9 @@ CONTAINS
          CALL get_qs_env(qs_env, para_env=para_env)
          CALL read_active_density(active_space_env, para_env)
       ENDIF
+
+      ! Compute total energy with update density
+      CALL qs_ks_build_kohn_sham_matrix(qs_env, calculate_forces=.FALSE., just_energy=.TRUE.)
 
       ! inactive subspace energy and active Fock operator
       CALL subspace_fock_matrix(active_space_env)
